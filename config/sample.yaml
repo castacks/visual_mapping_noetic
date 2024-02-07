@@ -1,0 +1,15 @@
+image_processing:
+    image_topic: /multisense/left/image_rect_color
+    camera_info_topic: /multisense/left/camera_info
+
+pointcloud:
+    topic: /velodyne_1/velodyne_points
+
+odometry:
+    topic: /integrated_to_init
+
+localmapping:
+    origin: [-50., -50.]
+    length_x: 100.
+    length_y: 100.
+    resolution: 0.5
