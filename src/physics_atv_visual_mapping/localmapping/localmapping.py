@@ -1,4 +1,5 @@
 import torch
+import copy
 from torch_scatter import scatter
 
 """
@@ -34,6 +35,7 @@ def aggregate_localmaps(agg_map, update_map, ema=0.5):
     """
     ## first shift update map to agg_map ##
     update_map_shift = shift_localmap(copy.deepcopy(update_map), agg_map['metadata'])
+#    update_map_shift = shift_localmap(update_map, agg_map['metadata'])
 
     ## map update
     res_known = update_map_shift['known'] | agg_map['known']
@@ -51,14 +53,16 @@ def aggregate_localmaps(agg_map, update_map, ema=0.5):
     }
 
 #    ## debug viz
-#    fig, axs = plt.subplots(2, 4, figsize=(48, 24))
-#    for i,k in enumerate(['agg', 'update', 'shift_update', 'result']):
-#        axs[0, i].set_title(k)
-
-#    for i, _map in enumerate([agg_map, update_map, update_map_shift, res]):
-#        axs[0, i].imshow(_map['data'].permute(1,0,2).cpu(), origin='lower', extent=get_viz_extent(_map['metadata']))
-#        axs[1, i].imshow(_map['known'].T.cpu(), origin='lower', extent=get_viz_extent(_map['metadata']))
-#        axs[1, i].set_title('origin: {:.2f}, {:.2f}'.format(_map['metadata']['origin'][0].item(), _map['metadata']['origin'][1].item()))
+#    if debug:
+#        fig, axs = plt.subplots(2, 4, figsize=(48, 24))
+#        for i,k in enumerate(['agg', 'update', 'shift_update', 'result']):
+#            axs[0, i].set_title(k)
+#
+#        for i, _map in enumerate([agg_map, update_map, update_map_shift, res]):
+#            axs[0, i].imshow(_map['data'].permute(1,0,2).cpu(), origin='lower', extent=get_viz_extent(_map['metadata']))
+#            axs[1, i].imshow(_map['known'].T.cpu(), origin='lower', extent=get_viz_extent(_map['metadata']))
+#            axs[1, i].set_title('origin: {:.2f}, {:.2f}'.format(_map['metadata']['origin'][0].item(), _map['metadata']['origin'][1].item()))
+#        plt.show()
 
     return res
 
@@ -83,11 +87,11 @@ def shift_localmap(src_map, metadata):
         src_map['data'][:-dgx] = 0.
         src_map['known'][:-dgx] = False
     if dgy > 0:
-        src_map['data'][:, -dgx:] = 0.
-        src_map['known'][:, -dgx:] = False
+        src_map['data'][:, -dgy:] = 0.
+        src_map['known'][:, -dgy:] = False
     elif dgy < 0:
-        src_map['data'][:, :-dgx] = 0.
-        src_map['known'][:, :-dgx] = False
+        src_map['data'][:, :-dgy] = 0.
+        src_map['known'][:, :-dgy] = False
 
     #update metadata
     src_map['metadata']['origin'][0] += dgx*metadata['resolution']
@@ -135,15 +139,18 @@ if __name__ == '__main__':
     dpt_fps = sorted(os.listdir(data_fp))
 
     metadata = {
-        'origin': torch.tensor([-50., -50.], device=device),
-        'length_x': torch.tensor(100., device=device),
-        'length_y': torch.tensor(100., device=device),
+        'origin': torch.tensor([-100., -100.], device=device),
+        'length_x': torch.tensor(200., device=device),
+        'length_y': torch.tensor(200., device=device),
         'resolution': torch.tensor(0.5, device=device)
     }
 
     map_agg = None
 
-    for dfp in dpt_fps:
+#    fig, axs = plt.subplots(2, 2, figsize=(12, 12))
+#    plt.show(block=False)
+
+    for i, dfp in enumerate(dpt_fps):
         dpt = torch.load(os.path.join(data_fp, dfp), map_location=device)
 
         pcl = dpt['pointcloud']
@@ -165,6 +172,8 @@ if __name__ == '__main__':
 #        pcl_viz.colors = o3d.utility.Vector3dVector(pcl_data.cpu().numpy())
 #        o3d.visualization.draw_geometries([pcl_viz])
 
+        print(i, pose[:3])
+
         t1 = time.time()
         localmap, known_mask, localmap_metadata = localmap_from_pointcloud(pcl_pos, pcl_data, _metadata)
         t2 = time.time()
@@ -183,7 +192,11 @@ if __name__ == '__main__':
         t4 = time.time()
 
         print('device = {}, BEV projection: {:.4f}s, accumulate: {:.4f}s'.format(device, t2-t1, t4-t3))
-        fig, axs = plt.subplots(2, 2, figsize=(12, 12))
+
+        """
+        for ax in axs.flatten():
+            ax.cla()
+
         for i,k in enumerate(['update', 'acc']):
             axs[0, i].set_title(k)
 
@@ -192,4 +205,5 @@ if __name__ == '__main__':
             axs[1, i].imshow(_map['known'].T.cpu(), origin='lower', extent=get_viz_extent(_map['metadata']))
             axs[1, i].set_title('origin: {:.2f}, {:.2f}'.format(_map['metadata']['origin'][0].item(), _map['metadata']['origin'][1].item()))
 
-        plt.show()
+        plt.pause(0.1)
+        """

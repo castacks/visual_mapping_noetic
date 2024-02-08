@@ -3,13 +3,18 @@ image_processing:
     camera_info_topic: /multisense/left/camera_info
 
 pointcloud:
-    topic: /velodyne_1/velodyne_points
+#    topic: /velodyne_1/velodyne_points
+    topic: /coloroze_pcl_node/colorized_pcl
 
 odometry:
     topic: /integrated_to_init
 
 localmapping:
-    origin: [-50., -50.]
-    length_x: 100.
-    length_y: 100.
-    resolution: 0.5
+    ema: 0.1 #higher->use recent more
+    metadata:
+        origin: [-50., -50.]
+        length_x: 100.
+        length_y: 100.
+        resolution: 0.5
+
+device: cuda
