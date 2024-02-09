@@ -2,7 +2,7 @@
 
 <launch>
     <node pkg="physics_atv_visual_mapping" type="colorize_pcl_node_torch.py" name="coloroze_pcl_node" output="screen">
-        <param name="~input_lidar_topic" value="/velodyne_1/velodyne_points"/>
+        <param name="~input_lidar_topic" value="/full_cloud"/>
 
         <param name="~input_img_topic" value="/multisense/left/image_rect_color"/>
         <param name="~input_pose_topic" value="/integrated_to_init"/>

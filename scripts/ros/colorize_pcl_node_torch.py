@@ -58,16 +58,15 @@ class ColorizePclNode:
             self.dino = True
 
         if self.dino:
+            # input_size = (int(14*(546//(14*self.down_sample_factor))),int(14*(1036//(14*self.down_sample_factor))))
+            input_size = (364,686)
             desc_layer: int = config['DINO']['desc_layer']
             desc_facet: Literal["query", "key", "value", "token"] = "value"
-            encoder = DinoV2ExtractFeatures(config['DINO']['model'], desc_layer,
+            encoder = DinoV2ExtractFeatures(config['DINO']['model'], desc_layer, input_size,
                 desc_facet, device="cuda")
             self.dino_encoder = encoder
             self.down_sample_factor = config['DINO']['downsample_factor']
-            self.dino_input_size = (int(14*(546//(14*self.down_sample_factor))),int(14*(1036//(14*self.down_sample_factor))))
-            # self.dino_input_size = (350,644)
-
-            self.dino_out_size = (int(self.dino_input_size[0]/14),int(self.dino_input_size[1]/14))
+            # self.dino_out_size = (int(self.dino_input_size[0]/14),int(self.dino_input_size[1]/14))
             # self.dino_transform = transforms.Compose([transforms.Resize(self.dino_input_size)])
 
             if 'VLAD' in config['DINO']:
@@ -199,16 +198,16 @@ class ColorizePclNode:
             now = time.perf_counter()
 
             if self.dino:
-                image = cv2.resize(self.image,(self.dino_input_size[1],self.dino_input_size[0]))
-                image = torch.from_numpy(image).cuda()
-                dino_in = image.float()/255.0
-                dino_in = dino_in.permute(2,0,1).unsqueeze(0).cuda()
-                # dino_image = self.dino_encoder(dino_in)[0].reshape(self.dino_out_size[0],self.dino_out_size[1],-1)
-                feat_vec = self.dino_encoder(dino_in)[0]
-                # print(feat_vec.device)
+                image = self.image.astype(np.float32)/255.0
+                image = image[:,:,[2,1,0]]
+                print('swapped')
+                #TODO CHECK RGB VS BGR
+
+                feat_vec = self.dino_encoder(image)[0]
+
                 res = self.vlad.generate_res_vec(feat_vec)
 
-                da = res.abs().sum(dim=2).argmin(dim=1).reshape(self.dino_out_size[0], self.dino_out_size[1]).to(self.device)
+                da = res.abs().sum(dim=2).argmin(dim=1).reshape(self.dino_encoder.out_size[0], self.dino_encoder.out_size[1]).to(self.device)
                 # print('u2 ', time.perf_counter() - unc_now)
                 # da = F.interpolate(da[None, None, ...].to(float),
                 # (img.shape[0],img.shape[1]), mode='nearest')[0, 0].to(da.dtype)

@@ -11,6 +11,7 @@ from torch.nn import functional as F
 import fast_pytorch_kmeans as fpk
 from typing import Literal, Union, List
 import time
+import cv2
 
 # %%
 # List of downloads (for testing and data)
@@ -33,7 +34,7 @@ class DinoV2ExtractFeatures:
     """
         Extract features from an intermediate layer in Dino-v2
     """
-    def __init__(self, dino_model: _DINO_V2_MODELS, layer: int,
+    def __init__(self, dino_model: _DINO_V2_MODELS, layer: int, input_size: tuple,
                 facet: _DINO_FACETS="token", use_cls=False,
                 norm_descs=True, device: str = "cpu") -> None:
         """
@@ -74,21 +75,28 @@ class DinoV2ExtractFeatures:
         # Hook data
         self._hook_out = None
 
+        self.input_size = input_size
+        self.out_size = (int(input_size[0]/14),int(input_size[1]/14))
+
     def _generate_forward_hook(self):
         def _forward_hook(module, inputs, output):
             self._hook_out = output
         return _forward_hook
 
-    # def preprocess(img):
-        # ...
+    def preprocess(self, img):
+        img = cv2.resize(img,(self.input_size[1],self.input_size[0]))
+        img = torch.from_numpy(img).cuda()
+        if len(img.shape) == 3 and img.shape[2] == 3:
+            img = img.permute(2,0,1).unsqueeze(0).cuda()
+        return img
 
-    def __call__(self, img: torch.Tensor) -> torch.Tensor:
+    def __call__(self, img: np.ndarray) -> torch.Tensor:
         """
             Parameters:
             - img:   The input image
         """
         with torch.no_grad():
-            # self.preprocess(img)
+            img = self.preprocess(img)
             res = self.dino_model(img)
             if self.use_cls:
                 res = self._hook_out
