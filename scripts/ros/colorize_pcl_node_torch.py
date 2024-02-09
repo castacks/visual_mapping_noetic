@@ -23,6 +23,9 @@ from pointcloud_colorization.torch_color_pcl_utils import *
 import torch
 import time
 
+from physics_atv_visual_mapping.image_processing.anyloc_utils import DinoV2ExtractFeatures, VLAD
+
+import distinctipy as COLORS
 
 class ColorizePclNode:
     '''Class to create colorized pointclouds from a 3D pointcloud and an image with known intrinsics and extrinsics.
@@ -45,6 +48,41 @@ class ColorizePclNode:
         self.odom = None
         self.pose = None
 
+        self.device = 'cuda'
+
+        #replace with params file
+        config = {'DINO':{'desc_layer': 10, 'model': "dinov2_vitb14", 'downsample_factor' : 1.5,
+                            'VLAD': {'n_clusters': 8, 'cache_dir' : '/home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/dino_clusters/8_clusters_532'}}} #hard coding path for now sorry
+
+        if 'DINO' in config:
+            self.dino = True
+
+        if self.dino:
+            desc_layer: int = config['DINO']['desc_layer']
+            desc_facet: Literal["query", "key", "value", "token"] = "value"
+            encoder = DinoV2ExtractFeatures(config['DINO']['model'], desc_layer,
+                desc_facet, device="cuda")
+            self.dino_encoder = encoder
+            self.down_sample_factor = config['DINO']['downsample_factor']
+            self.dino_input_size = (int(14*(546//(14*self.down_sample_factor))),int(14*(1036//(14*self.down_sample_factor))))
+            # self.dino_input_size = (350,644)
+
+            self.dino_out_size = (int(self.dino_input_size[0]/14),int(self.dino_input_size[1]/14))
+            # self.dino_transform = transforms.Compose([transforms.Resize(self.dino_input_size)])
+
+            if 'VLAD' in config['DINO']:
+                vlad_config = config['DINO']['VLAD']
+                vlad = VLAD(vlad_config['n_clusters'], desc_dim=None,cache_dir=vlad_config['cache_dir'])
+                vlad.fit(None)
+                self.vlad = vlad
+                Csub = np.array(COLORS.get_colors(32))
+                self.Csub = torch.from_numpy(Csub).to(self.device)
+            elif 'PCA' in config['DINO']:
+                print("PCA NOT INTEGRATED YET :O")
+
+            else:
+                ...
+
         ## Set up subscribers
         input_lidar_topic = rospy.get_param('~input_lidar_topic', 'wanda/lidar_points')
         input_img_topic = rospy.get_param('~input_img_topic', '/wanda/stereo_right/image_rect_color/compressed')
@@ -58,6 +96,12 @@ class ColorizePclNode:
 
         # Get camera intrinsics and extrinsics directly from camera info and tf2
         self.intrinsics = torch.tensor(rospy.wait_for_message(input_camera_info_topic, CameraInfo).K).reshape(3,3).float()
+
+        if self.dino:
+            #TODO double check this
+            # self.dino_intrinsics = self.rgb_intrinsics // 14
+            self.dino_intrinsics = self.intrinsics / (14.*self.down_sample_factor)
+            self.dino_intrinsics[-1,-1] = 1
 
         self.tfBuffer = tf2_ros.Buffer()
         tf_listener = tf2_ros.TransformListener(self.tfBuffer)
@@ -115,7 +159,7 @@ class ColorizePclNode:
 
     def lidar_img_odom_sync_cb(self, lidar_msg, img_msg, odom_msg):
         '''Callback function for lidar, image, and odom subscribers called directly by TimeSynchronizer'''
-        print('here')
+        # print('here')
         point_cloud = ros_numpy.numpify(lidar_msg)
         pc_x = point_cloud['x'].flatten()
         pc_y = point_cloud['y'].flatten()
@@ -125,7 +169,7 @@ class ColorizePclNode:
         points[:,0]=pc_x
         points[:,1]=pc_y
         points[:,2]=pc_z
-        self.lidar_points = torch.from_numpy(points).float()
+        self.lidar_points = points
         self.lidar_frame_id = lidar_msg.header.frame_id
         self.got_pcl = True
 
@@ -134,7 +178,7 @@ class ColorizePclNode:
             self.image = cv2.imdecode(compressed_image, cv2.IMREAD_UNCHANGED)
         else:
             self.image = self.bridge.imgmsg_to_cv2(img_msg, desired_encoding='bgr8')
-        self.image = torch.from_numpy(self.image)
+        # self.image = torch.from_numpy(self.image)
 
         self.lidar_stamp = img_msg.header.stamp #! HACK FOR NOW to get it passed through local mapping's time sync
         self.got_rgb = True
@@ -153,31 +197,55 @@ class ColorizePclNode:
 
         if self.got_pcl and self.got_rgb:
             now = time.perf_counter()
-            #print("Publishing colorized pointcloud!")
+
+            if self.dino:
+                image = cv2.resize(self.image,(self.dino_input_size[1],self.dino_input_size[0]))
+                image = torch.from_numpy(image).cuda()
+                dino_in = image.float()/255.0
+                dino_in = dino_in.permute(2,0,1).unsqueeze(0).cuda()
+                # dino_image = self.dino_encoder(dino_in)[0].reshape(self.dino_out_size[0],self.dino_out_size[1],-1)
+                feat_vec = self.dino_encoder(dino_in)[0]
+                # print(feat_vec.device)
+                res = self.vlad.generate_res_vec(feat_vec)
+
+                da = res.abs().sum(dim=2).argmin(dim=1).reshape(self.dino_out_size[0], self.dino_out_size[1]).to(self.device)
+                # print('u2 ', time.perf_counter() - unc_now)
+                # da = F.interpolate(da[None, None, ...].to(float),
+                # (img.shape[0],img.shape[1]), mode='nearest')[0, 0].to(da.dtype)
+                # print('u3 ', time.perf_counter() - unc_now)
+
+                image = self.Csub[da.long()]
+                # print(self.Csub.dtype)
+
+                intrinsics = self.dino_intrinsics
+            else:
+                intrinsics = self.intrinsics
+
             ## Get rid of invalid lidar points
-            self.valid_points = remove_invalid(self.lidar_points)
+            lidar_points = torch.from_numpy(self.lidar_points).float().to(self.device)
+            self.valid_points = remove_invalid(lidar_points)
 
             ## Obtain projection matrix from lidar coordinates to pixel coordinates
-            I = get_intrinsics(self.intrinsics, self.tf_in_optical)
-            E = get_extrinsics(self.extrinsics, self.tf_in_optical)
+            I = get_intrinsics(intrinsics, self.tf_in_optical).to(self.device)
+            E = get_extrinsics(self.extrinsics, self.tf_in_optical).to(self.device)
             self.P = obtain_projection_matrix(I, E)
 
             ## For each 3D point in lidar space, obtain location in pixel space
             self.pixel_coordinates = get_pixel_from_3D_source(self.valid_points, self.P)
 
             ## Remove pixel points/lidar points outside of image frame
-            self.lidar_points_in_frame, self.pixels_in_frame, self.ind_in_frame = get_points_and_pixels_in_frame(self.valid_points, self.pixel_coordinates, self.image.shape[0], self.image.shape[1])
+            self.lidar_points_in_frame, self.pixels_in_frame, self.ind_in_frame = get_points_and_pixels_in_frame(self.valid_points, self.pixel_coordinates, image.shape[0], image.shape[1])
 
-            rgb_values_in_frame = get_rgb_from_pixel_coords(self.image, self.pixels_in_frame)
+            rgb_values_in_frame = get_rgb_from_pixel_coords(image, self.pixels_in_frame).cpu().numpy() * 255
             # self.rgb_values /= 255
 
-            self.rgb_values = torch.zeros(self.valid_points.shape,dtype = torch.uint8)
+            # self.rgb_values = torch.zeros(self.valid_points.shape,dtype = torch.uint8)
             # print(self.rgb_values.dtype, rgb_values_in_frame.dtype)
-            self.rgb_values[self.ind_in_frame] = rgb_values_in_frame
+            # self.rgb_values[self.ind_in_frame] = rgb_values_in_frame
 
             ## For remaining lidar points, add RGB pixel info to lidar point
             # self.colorized_point_cloud_msg = create_point_cloud(self.valid_points, parent_frame=self.lidar_frame_id, colors=self.rgb_values)
-            self.colorized_point_cloud_msg = create_point_cloud(self.lidar_points_in_frame, parent_frame=self.lidar_frame_id, colors=rgb_values_in_frame)
+            self.colorized_point_cloud_msg = create_point_cloud(self.lidar_points_in_frame.cpu().numpy(), parent_frame=self.lidar_frame_id, colors=rgb_values_in_frame)
 
             self.colorized_point_cloud_msg.header.stamp = self.lidar_stamp
 

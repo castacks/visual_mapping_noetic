@@ -79,12 +79,16 @@ class DinoV2ExtractFeatures:
             self._hook_out = output
         return _forward_hook
 
+    # def preprocess(img):
+        # ...
+
     def __call__(self, img: torch.Tensor) -> torch.Tensor:
         """
             Parameters:
             - img:   The input image
         """
         with torch.no_grad():
+            # self.preprocess(img)
             res = self.dino_model(img)
             if self.use_cls:
                 res = self._hook_out

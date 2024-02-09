@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 
 <launch>
-    <node pkg="pointcloud_colorization" type="colorize_pcl_node.py" name="coloroze_pcl_node" output="screen">
+    <node pkg="physics_atv_visual_mapping" type="colorize_pcl_node_torch.py" name="coloroze_pcl_node" output="screen">
         <param name="~input_lidar_topic" value="/velodyne_1/velodyne_points"/>
 
         <param name="~input_img_topic" value="/multisense/left/image_rect_color"/>
