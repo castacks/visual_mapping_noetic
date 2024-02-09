@@ -1,6 +1,7 @@
 image_processing:
     image_topic: /multisense/left/image_rect_color
     camera_info_topic: /multisense/left/camera_info
+    image_compressed: False
 
 pointcloud:
 #    topic: /velodyne_1/velodyne_points
@@ -8,6 +9,19 @@ pointcloud:
 
 odometry:
     topic: /integrated_to_init
+
+pca:
+    fp: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/pca/debug.pt
+
+dino:
+    dino_type: dinov2_vitb14
+    dino_layer: 10
+    image_insize: [686, 364] #this should be the size of the input images
+
+#TODO get this from tf
+extrinsics:
+    p: [0.0, 0.0, -0.127]
+    q: [-0.549, 0.554, -0.445, -0.440] #xyzw
 
 localmapping:
     ema: 0.1 #higher->use recent more

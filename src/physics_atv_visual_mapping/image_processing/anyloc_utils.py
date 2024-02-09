@@ -76,7 +76,7 @@ class DinoV2ExtractFeatures:
         self._hook_out = None
 
         self.input_size = input_size
-        self.out_size = (int(input_size[0]/14),int(input_size[1]/14))
+        self.output_size = (int(input_size[0]/14),int(input_size[1]/14))
 
     def _generate_forward_hook(self):
         def _forward_hook(module, inputs, output):
@@ -84,11 +84,9 @@ class DinoV2ExtractFeatures:
         return _forward_hook
 
     def preprocess(self, img):
-        img = cv2.resize(img,(self.input_size[1],self.input_size[0]))
-        img = torch.from_numpy(img).cuda()
-        if len(img.shape) == 3 and img.shape[2] == 3:
-            img = img.permute(2,0,1).unsqueeze(0).cuda()
-        return img
+        img = cv2.resize(img,(self.input_size[0],self.input_size[1]))
+        img = torch.from_numpy(img).cuda().float()
+        return img.unsqueeze(0).permute(0,3,1,2)
 
     def __call__(self, img: np.ndarray) -> torch.Tensor:
         """
@@ -113,7 +111,8 @@ class DinoV2ExtractFeatures:
         if self.norm_descs:
             res = F.normalize(res, dim=-1)
         self._hook_out = None   # Reset the hook
-        return res
+
+        return res.view(img.shape[0], self.output_size[1], self.output_size[0], -1)
 
     def __del__(self):
         self.fh_handle.remove()

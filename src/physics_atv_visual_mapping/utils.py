@@ -31,6 +31,16 @@ def tf_msg_to_htm(tf_msg):
 
     return torch.from_numpy(htm).float()
 
+def pcl_msg_to_xyz(pcl_msg):
+    pcl_np = ros_numpy.numpify(pcl_msg)
+    xyz = np.stack([
+        pcl_np['x'],
+        pcl_np['y'],
+        pcl_np['z']
+    ], axis=-1)
+
+    return torch.from_numpy(xyz).float()
+
 def pcl_msg_to_xyzrgb(pcl_msg):
     pcl_np = ros_numpy.numpify(pcl_msg)
     xyz = np.stack([
@@ -50,6 +60,17 @@ def pcl_msg_to_xyzrgb(pcl_msg):
         colors
     ], axis=-1)).float()
 
+def pose_to_htm(pose):
+    p = pose[:3]
+    q = pose[3:7]
+
+    R = Rotation.from_quat(q).as_matrix()
+
+    htm = np.eye(4)
+    htm[:3, :3] = R
+    htm[:3, -1] = p
+
+    return torch.from_numpy(htm).float()
 
 def transform_points(points, htm):
     """
