@@ -110,7 +110,7 @@ class DinoMappingNode:
         pcl_htm = tf_msg_to_htm(tf_msg).to(self.device)
         pcl = pcl_msg_to_xyzrgb(self.pcl_msg).to(self.device)
 #        pcl = pcl_msg_to_xyz(self.pcl_msg).to(self.device)
-        pcl_odom = transform_points(pcl, pcl_htm)
+        pcl_odom = transform_points(pcl.clone(), pcl_htm)
 
         _metadata = {
             'origin': torch.tensor([
@@ -135,8 +135,6 @@ class DinoMappingNode:
         dino_img_norm = dino_img.view(-1, dino_img.shape[-1]) - self.dino_pca['mean'].view(1,-1)
         dino_pca = dino_img_norm.unsqueeze(1) @ self.dino_pca['V'].unsqueeze(0)
         dino_img = dino_pca.view(dino_img.shape[0], dino_img.shape[1], -1)
-
-        print(img.shape, dino_img.shape)
 
         #need to scale intrinsics to dino resolution
         dino_rx = img.shape[0] / dino_img.shape[0]
@@ -174,7 +172,8 @@ class DinoMappingNode:
             'metadata': _metadata,
             'image': img,
             'dino_image': dino_img,
-            'dino_pcl': dino_pcl
+            'dino_pcl': dino_pcl,
+            'pixel_projection': pixel_coordinates[ind_in_frame]
         }
 
     def update_localmap(self, pcl, metadata):
@@ -199,7 +198,8 @@ class DinoMappingNode:
         matplotlib.rcParams['figure.raise_window'] = False
         import time
 
-        fig, ax = plt.subplots(1, 1, figsize=(4, 4))
+        fig, axs = plt.subplots(2, 2, figsize=(4, 3))
+        axs = axs.flatten()
         plt.show(block=False)
         while not rospy.is_shutdown():
             rospy.loginfo('spinning...')
@@ -227,21 +227,43 @@ class DinoMappingNode:
                     self.localmap['metadata']['origin'][1].item(),
                     self.localmap['metadata']['origin'][1].item() + self.localmap['metadata']['length_y'].item()
                 )
-                ax.cla()
 
-                print(self.localmap['data'].shape)
+                img_extent = (
+                    0,
+                    res['dino_image'].shape[1],
+                    0,
+                    res['dino_image'].shape[0],
+                )
+
+                for ax in axs:
+                    ax.cla()
+
                 vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
                 vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
-                print(vmin, vmax)
                 localmap_viz = (self.localmap['data'][..., :3] - vmin) / (vmax-vmin)
 
-                ax.imshow(localmap_viz.permute(1,0,2).cpu(), extent=extent, origin='lower')
-                ax.scatter(
+                dino_img_viz = ((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0., 1.)
+
+                axs[0].imshow(localmap_viz.permute(1,0,2).cpu(), extent=extent, origin='lower')
+                axs[0].scatter(
                     self.odom_msg.pose.pose.position.x,
                     self.odom_msg.pose.pose.position.y,
                     marker='x',
                     c='r'
                 )
+
+                axs[1].imshow(res['image'], extent=img_extent)
+                axs[1].imshow(dino_img_viz.cpu(), extent=img_extent)
+
+                axs[2].imshow(res['image'], extent=img_extent)
+                axs[2].scatter(res['pixel_projection'][:, 0].cpu(), dino_img_viz.shape[0]-res['pixel_projection'][:, 1].cpu(), c='r', s=1., alpha=0.5)
+
+                dino_pt_cs = ((res['dino_pcl'][::10, 3:6]-vmin[0])/(vmax[0]-vmin[0])).clip(0., 1.)
+                axs[3].scatter(res['dino_pcl'][::10, 0].cpu(), res['dino_pcl'][::10, 1].cpu(), c=dino_pt_cs.cpu(), s=1.)
+                axs[3].set_xlim(extent[0], extent[1])
+                axs[3].set_xlim(extent[2], extent[3])
+                axs[3].set_aspect(1.)
+
                 plt.pause(1e-2)
 
             self.rate.sleep()

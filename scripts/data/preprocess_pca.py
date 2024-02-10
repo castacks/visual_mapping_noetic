@@ -176,6 +176,8 @@ if __name__ == '__main__':
             dino_intrinsics[1, 1] /= dino_ry
             dino_intrinsics[1, 2] /= dino_ry
 
+            print(dino_intrinsics, extrinsics)
+
             P = obtain_projection_matrix(dino_intrinsics, extrinsics).to(config['device'])
             pcl_pixel_coords = get_pixel_from_3D_source(pcl, P)
             pcl_in_frame, pixels_in_frame, ind_in_frame = get_points_and_pixels_in_frame(pcl, pcl_pixel_coords, dino_feats.shape[0], dino_feats.shape[1])
