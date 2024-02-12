@@ -10,6 +10,8 @@ np.float = np.float64 #hack for numpify
 
 from sensor_msgs.msg import PointCloud2, CameraInfo, Image, CompressedImage
 from nav_msgs.msg import Odometry
+from grid_map_msgs.msg import GridMap
+from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Float32
 
 from physics_atv_visual_mapping.image_processing.anyloc_utils import DinoV2ExtractFeatures
 from physics_atv_visual_mapping.pointcloud_colorization.torch_color_pcl_utils import *
@@ -60,6 +62,9 @@ class DinoMappingNode:
 
         self.pcl_sub = rospy.Subscriber(config['pointcloud']['topic'], PointCloud2, self.handle_pointcloud, queue_size=1)
         self.odom_sub = rospy.Subscriber(config['odometry']['topic'], Odometry, self.handle_odom, queue_size=10)
+
+        self.pcl_pub = rospy.Publisher('/dino_pcl', PointCloud2, queue_size=1)
+        self.gridmap_pub = rospy.Publisher('/dino_gridmap', GridMap, queue_size=1)
 
         self.rate = rospy.Rate(10)
 
@@ -192,15 +197,203 @@ class DinoMappingNode:
         else:
             return aggregate_localmaps(localmap_update, self.localmap, ema=self.localmap_ema)
 
+    def make_gridmap_msg(self, localmap):
+        """
+        convert dino into gridmap msg
+
+        Publish all the feature channels, plus a visualization and elevation layer
+
+        Note that we assume all the requisite stuff is available (pcl, img, odom) as this
+        should only be called after a dino map is successfully produced
+        """
+        gridmap_msg = GridMap()
+        gridmap_data = localmap['data'].cpu().numpy()
+
+        #setup metadata
+        gridmap_msg.info.header.stamp = self.img_msg.header.stamp
+        gridmap_msg.info.header.frame_id = self.odom_frame
+        gridmap_msg.layers = ['dino_{}'.format(i) for i in range(gridmap_data.shape[-1])]
+
+        gridmap_msg.info.resolution = localmap['metadata']['resolution'].item()
+        gridmap_msg.info.length_x = localmap['metadata']['length_x'].item()
+        gridmap_msg.info.length_y = localmap['metadata']['length_y'].item()
+        gridmap_msg.info.pose.position.x = localmap['metadata']['origin'][0].item() + 0.5*gridmap_msg.info.length_x
+        gridmap_msg.info.pose.position.y = localmap['metadata']['origin'][1].item() + 0.5*gridmap_msg.info.length_y
+        gridmap_msg.info.pose.position.z = self.odom_msg.pose.pose.position.z
+        gridmap_msg.info.pose.orientation.z = 1.
+
+        for i in range(gridmap_data.shape[-1]):
+            layer_data = gridmap_data[..., i]
+            gridmap_layer_msg = Float32MultiArray()
+            gridmap_layer_msg.layout.dim.append(
+                MultiArrayDimension(
+                    label="column_index",
+                    size=layer_data.shape[0],
+                    stride=layer_data.shape[0]
+                )
+            )
+            gridmap_layer_msg.layout.dim.append(
+                MultiArrayDimension(
+                    label="row_index",
+                    size=layer_data.shape[0],
+                    stride=layer_data.shape[0] * layer_data.shape[1]
+                )
+            )
+
+            #gridmap reverses the rasterization
+            gridmap_layer_msg.data = layer_data[::-1, ::-1].T.flatten()
+            gridmap_msg.data.append(gridmap_layer_msg)
+
+        #add dummy elevation
+        gridmap_msg.layers.append('elevation')
+        layer_data = np.zeros_like(gridmap_data[...,0])
+        gridmap_layer_msg = Float32MultiArray()
+        gridmap_layer_msg.layout.dim.append(
+            MultiArrayDimension(
+                label="column_index",
+                size=layer_data.shape[0],
+                stride=layer_data.shape[0]
+            )
+        )
+        gridmap_layer_msg.layout.dim.append(
+            MultiArrayDimension(
+                label="row_index",
+                size=layer_data.shape[0],
+                stride=layer_data.shape[0] * layer_data.shape[1]
+            )
+        )
+
+        gridmap_layer_msg.data = layer_data.flatten()
+        gridmap_msg.data.append(gridmap_layer_msg)
+
+        #Add rgb viz of top 3
+        gridmap_rgb = gridmap_data[..., :3]
+        vmin = gridmap_rgb.reshape(-1, 3).min(axis=0).reshape(1,1,3)
+        vmax = gridmap_rgb.reshape(-1, 3).max(axis=0).reshape(1,1,3)
+        gridmap_cs = (gridmap_rgb-vmin)/(vmax-vmin)
+        gridmap_cs = (gridmap_cs*255.).astype(np.int32)
+        gridmap_color = gridmap_cs[..., 0] * (2**16) + gridmap_cs[..., 1] * (2**8) + gridmap_cs[..., 2]
+        gridmap_color = gridmap_color.view(dtype=np.float32)
+
+        gridmap_msg.layers.append('rgb_viz')
+        gridmap_layer_msg = Float32MultiArray()
+        gridmap_layer_msg.layout.dim.append(
+            MultiArrayDimension(
+                label="column_index",
+                size=layer_data.shape[0],
+                stride=layer_data.shape[0]
+            )
+        )
+        gridmap_layer_msg.layout.dim.append(
+            MultiArrayDimension(
+                label="row_index",
+                size=layer_data.shape[0],
+                stride=layer_data.shape[0] * layer_data.shape[1]
+            )
+        )
+
+        gridmap_layer_msg.data = gridmap_color.T[::-1, ::-1].flatten()
+        gridmap_msg.data.append(gridmap_layer_msg)
+
+        return gridmap_msg
+
+    def make_pcl_msg(self, pcl):
+        """
+        Convert dino pcl into message
+        """
+        pcl_pos = pcl[:, :3].cpu().numpy()
+
+        pcl_cs = pcl[:, 3:6]
+        vmin = pcl_cs.min(dim=0)[0].view(1,3)
+        vmax = pcl_cs.max(dim=0)[0].view(1,3)
+        pcl_cs =((pcl_cs - vmin) / (vmax - vmin)).cpu().numpy()
+
+        msg = self.xyz_array_to_point_cloud_msg(
+            points=pcl_pos,
+            frame=self.odom_frame,
+            timestamp=self.pcl_msg.header.stamp,
+            rgb_values=(pcl_cs*255.).astype(np.uint8)
+        )
+
+        return msg
+
+    def xyz_array_to_point_cloud_msg(self, points, frame, timestamp=None, rgb_values=None):
+        """
+        Modified from: https://github.com/castacks/physics_atv_deep_stereo_vo/blob/main/src/stereo_node_multisense.py 
+        Please refer to this ros answer about the usage of point cloud message:
+            https://answers.ros.org/question/234455/pointcloud2-and-pointfield/
+        :param points:
+        :param header:
+        :return:
+        """
+        header = Header()
+        header.frame_id = frame
+        if timestamp is None:
+            timestamp = rospy.Time().now()
+        header.stamp = timestamp
+        msg = PointCloud2()
+        msg.header = header
+        if len(points.shape)==3:
+            msg.width = points.shape[0]
+            msg.height = points.shape[1]
+        else:
+            msg.width = points.shape[0]
+            msg.height = 1
+        msg.is_bigendian = False
+        # organized clouds are non-dense, since we have to use std::numeric_limits<float>::quiet_NaN()
+        # to fill all x/y/z value; un-organized clouds are dense, since we can filter out unfavored ones
+        msg.is_dense = False
+
+        if rgb_values is None:
+            msg.fields = [PointField('x', 0, PointField.FLOAT32, 1),
+                          PointField('y', 4, PointField.FLOAT32, 1),
+                          PointField('z', 8, PointField.FLOAT32, 1), ]
+            msg.point_step = 12
+            msg.row_step = msg.point_step * msg.width
+            xyz = points.astype(np.float32)
+            msg.data = xyz.tostring()
+        else:
+            msg.fields = [PointField('x', 0, PointField.FLOAT32, 1),
+                          PointField('y', 4, PointField.FLOAT32, 1),
+                          PointField('z', 8, PointField.FLOAT32, 1), 
+                          PointField('rgb', 12, PointField.UINT32, 1),]
+            msg.point_step = 16
+            msg.row_step = msg.point_step * msg.width
+
+            xyzcolor = np.zeros( (points.shape[0], 1), \
+            dtype={ 
+                "names": ( "x", "y", "z", "rgba" ), 
+                "formats": ( "f4", "f4", "f4", "u4" )} )
+            xyzcolor["x"] = points[:, 0].reshape((-1, 1))
+            xyzcolor["y"] = points[:, 1].reshape((-1, 1))
+            xyzcolor["z"] = points[:, 2].reshape((-1, 1))
+            color_rgba = np.zeros((points.shape[0], 4), dtype=np.uint8) + 255
+            color_rgba[:,:3] = rgb_values[:,:3]
+            xyzcolor["rgba"] = color_rgba.view('uint32')
+            msg.data = xyzcolor.tostring()
+
+        return msg
+
+    def publish_messages(self, res):
+        """
+        Publish the dino pcl and dino map
+        """
+        gridmap_msg = self.make_gridmap_msg(self.localmap)
+        self.gridmap_pub.publish(gridmap_msg)
+
+        pcl_msg = self.make_pcl_msg(res['dino_pcl'])
+        self.pcl_pub.publish(pcl_msg)
+
     def spin(self):
         import matplotlib.pyplot as plt
         import matplotlib
         matplotlib.rcParams['figure.raise_window'] = False
         import time
 
-        fig, axs = plt.subplots(2, 2, figsize=(4, 3))
-        axs = axs.flatten()
-        plt.show(block=False)
+        if False:
+            fig, axs = plt.subplots(2, 2, figsize=(4, 3))
+            axs = axs.flatten()
+            plt.show(block=False)
         while not rospy.is_shutdown():
             rospy.loginfo('spinning...')
 
@@ -218,53 +411,58 @@ class DinoMappingNode:
                 )
                 t4 = time.time()
 
-                rospy.loginfo('Timing:\n\tpreproc: {:.6f}s\n\tlocalmap: {:.6f}s'.format(t2-t1, t4-t3))
+                self.publish_messages(res)
 
-                #debug viz
-                extent = (
-                    self.localmap['metadata']['origin'][0].item(),
-                    self.localmap['metadata']['origin'][0].item() + self.localmap['metadata']['length_x'].item(),
-                    self.localmap['metadata']['origin'][1].item(),
-                    self.localmap['metadata']['origin'][1].item() + self.localmap['metadata']['length_y'].item()
-                )
+                t5 = time.time()
 
-                img_extent = (
-                    0,
-                    res['dino_image'].shape[1],
-                    0,
-                    res['dino_image'].shape[0],
-                )
+                rospy.loginfo('Timing:\n\tpreproc: {:.6f}s\n\tlocalmap: {:.6f}s\n\tserialize: {:.6f}s'.format(t2-t1, t4-t3, t5-t4))
 
-                for ax in axs:
-                    ax.cla()
+                if False:
+                    #debug viz
+                    extent = (
+                        self.localmap['metadata']['origin'][0].item(),
+                        self.localmap['metadata']['origin'][0].item() + self.localmap['metadata']['length_x'].item(),
+                        self.localmap['metadata']['origin'][1].item(),
+                        self.localmap['metadata']['origin'][1].item() + self.localmap['metadata']['length_y'].item()
+                    )
 
-                vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
-                vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
-                localmap_viz = (self.localmap['data'][..., :3] - vmin) / (vmax-vmin)
+                    img_extent = (
+                        0,
+                        res['dino_image'].shape[1],
+                        0,
+                        res['dino_image'].shape[0],
+                    )
 
-                dino_img_viz = ((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0., 1.)
+                    for ax in axs:
+                        ax.cla()
 
-                axs[0].imshow(localmap_viz.permute(1,0,2).cpu(), extent=extent, origin='lower')
-                axs[0].scatter(
-                    self.odom_msg.pose.pose.position.x,
-                    self.odom_msg.pose.pose.position.y,
-                    marker='x',
-                    c='r'
-                )
+                    vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
+                    vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
+                    localmap_viz = (self.localmap['data'][..., :3] - vmin) / (vmax-vmin)
 
-                axs[1].imshow(res['image'], extent=img_extent)
-                axs[1].imshow(dino_img_viz.cpu(), extent=img_extent)
+                    dino_img_viz = ((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0., 1.)
 
-                axs[2].imshow(res['image'], extent=img_extent)
-                axs[2].scatter(res['pixel_projection'][:, 0].cpu(), dino_img_viz.shape[0]-res['pixel_projection'][:, 1].cpu(), c='r', s=1., alpha=0.5)
+                    axs[0].imshow(localmap_viz.permute(1,0,2).cpu(), extent=extent, origin='lower')
+                    axs[0].scatter(
+                        self.odom_msg.pose.pose.position.x,
+                        self.odom_msg.pose.pose.position.y,
+                        marker='x',
+                        c='r'
+                    )
 
-                dino_pt_cs = ((res['dino_pcl'][::10, 3:6]-vmin[0])/(vmax[0]-vmin[0])).clip(0., 1.)
-                axs[3].scatter(res['dino_pcl'][::10, 0].cpu(), res['dino_pcl'][::10, 1].cpu(), c=dino_pt_cs.cpu(), s=1.)
-                axs[3].set_xlim(extent[0], extent[1])
-                axs[3].set_xlim(extent[2], extent[3])
-                axs[3].set_aspect(1.)
+                    axs[1].imshow(res['image'], extent=img_extent)
+                    axs[1].imshow(dino_img_viz.cpu(), extent=img_extent)
 
-                plt.pause(1e-2)
+                    axs[2].imshow(res['image'], extent=img_extent)
+                    axs[2].scatter(res['pixel_projection'][:, 0].cpu(), dino_img_viz.shape[0]-res['pixel_projection'][:, 1].cpu(), c='r', s=1., alpha=0.5)
+
+                    dino_pt_cs = ((res['dino_pcl'][::10, 3:6]-vmin[0])/(vmax[0]-vmin[0])).clip(0., 1.)
+                    axs[3].scatter(res['dino_pcl'][::10, 0].cpu(), res['dino_pcl'][::10, 1].cpu(), c=dino_pt_cs.cpu(), s=1.)
+                    axs[3].set_xlim(extent[0], extent[1])
+                    axs[3].set_xlim(extent[2], extent[3])
+                    axs[3].set_aspect(1.)
+
+                    plt.pause(1e-2)
 
             self.rate.sleep()
 
