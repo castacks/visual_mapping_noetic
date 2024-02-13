@@ -65,8 +65,10 @@ class DinoMappingNode:
 
         self.pcl_pub = rospy.Publisher('/dino_pcl', PointCloud2, queue_size=1)
         self.gridmap_pub = rospy.Publisher('/dino_gridmap', GridMap, queue_size=1)
+        self.image_pub = rospy.Publisher('/dino_img', Image, queue_size=1)
 
         self.rate = rospy.Rate(10)
+        self.viz = config['viz']
 
     def handle_pointcloud(self, msg):
         #temp hack
@@ -113,8 +115,8 @@ class DinoMappingNode:
         tf_msg = self.tf_buffer.lookup_transform(self.odom_frame, self.pcl_msg.header.frame_id, self.pcl_msg.header.stamp)
 
         pcl_htm = tf_msg_to_htm(tf_msg).to(self.device)
-        pcl = pcl_msg_to_xyzrgb(self.pcl_msg).to(self.device)
-#        pcl = pcl_msg_to_xyz(self.pcl_msg).to(self.device)
+#        pcl = pcl_msg_to_xyzrgb(self.pcl_msg).to(self.device)
+        pcl = pcl_msg_to_xyz(self.pcl_msg).to(self.device)
         pcl_odom = transform_points(pcl.clone(), pcl_htm)
 
         _metadata = {
@@ -207,6 +209,7 @@ class DinoMappingNode:
         should only be called after a dino map is successfully produced
         """
         gridmap_msg = GridMap()
+
         gridmap_data = localmap['data'].cpu().numpy()
 
         #setup metadata
@@ -379,7 +382,10 @@ class DinoMappingNode:
         Publish the dino pcl and dino map
         """
         gridmap_msg = self.make_gridmap_msg(self.localmap)
+
+        t1 = time.time()
         self.gridmap_pub.publish(gridmap_msg)
+        print(time.time() - t1)
 
         pcl_msg = self.make_pcl_msg(res['dino_pcl'])
         self.pcl_pub.publish(pcl_msg)
@@ -390,10 +396,11 @@ class DinoMappingNode:
         matplotlib.rcParams['figure.raise_window'] = False
         import time
 
-        if False:
+        if self.viz:
             fig, axs = plt.subplots(2, 2, figsize=(4, 3))
             axs = axs.flatten()
             plt.show(block=False)
+
         while not rospy.is_shutdown():
             rospy.loginfo('spinning...')
 
@@ -417,8 +424,8 @@ class DinoMappingNode:
 
                 rospy.loginfo('Timing:\n\tpreproc: {:.6f}s\n\tlocalmap: {:.6f}s\n\tserialize: {:.6f}s'.format(t2-t1, t4-t3, t5-t4))
 
-                if False:
-                    #debug viz
+                #debug viz
+                if self.viz:
                     extent = (
                         self.localmap['metadata']['origin'][0].item(),
                         self.localmap['metadata']['origin'][0].item() + self.localmap['metadata']['length_x'].item(),
@@ -449,18 +456,22 @@ class DinoMappingNode:
                         marker='x',
                         c='r'
                     )
+                    axs[0].set_title('Dino map')
 
                     axs[1].imshow(res['image'], extent=img_extent)
-                    axs[1].imshow(dino_img_viz.cpu(), extent=img_extent)
+                    axs[1].imshow(dino_img_viz.cpu(), extent=img_extent, alpha=0.5)
+                    axs[1].set_title('Dino + FPV')
 
                     axs[2].imshow(res['image'], extent=img_extent)
-                    axs[2].scatter(res['pixel_projection'][:, 0].cpu(), dino_img_viz.shape[0]-res['pixel_projection'][:, 1].cpu(), c='r', s=1., alpha=0.5)
+                    axs[2].scatter(res['pixel_projection'][:, 0].cpu(), dino_img_viz.shape[0]-res['pixel_projection'][:, 1].cpu(), c='r', s=1., alpha=0.02)
+                    axs[2].set_title('pcl projection')
 
                     dino_pt_cs = ((res['dino_pcl'][::10, 3:6]-vmin[0])/(vmax[0]-vmin[0])).clip(0., 1.)
                     axs[3].scatter(res['dino_pcl'][::10, 0].cpu(), res['dino_pcl'][::10, 1].cpu(), c=dino_pt_cs.cpu(), s=1.)
                     axs[3].set_xlim(extent[0], extent[1])
-                    axs[3].set_xlim(extent[2], extent[3])
+                    axs[3].set_ylim(extent[2], extent[3])
                     axs[3].set_aspect(1.)
+                    axs[3].set_title('dino PCL')
 
                     plt.pause(1e-2)
 

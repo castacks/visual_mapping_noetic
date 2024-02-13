@@ -12,6 +12,7 @@ dino_layer: 10
 image_insize: [686, 364] #this should be the size of the input images
 
 pca_nfeats: 16 #reduce output feats to this dim
+#pca_nfeats: 128 #reduce output feats to this dim
 
 pcl_mindist: 3.0
 pcl_maxdist: 50.0

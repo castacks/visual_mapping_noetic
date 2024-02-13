@@ -9,6 +9,14 @@ from scipy.spatial.transform import Rotation
 collection of common geometry operations on poses, points, etc
 """
 
+def normalize_dino(img):
+    _img = img[..., :3]
+    _ndims = len(img.shape)-1
+    _dims = [1] * _ndims + [3]
+    vmin = _img.view(-1, 3).min(dim=0)[0].view(*_dims)
+    vmax = _img.view(-1, 3).max(dim=0)[0].view(*_dims)
+    return (_img-vmin)/(vmax-vmin)
+
 def tf_msg_to_htm(tf_msg):
     p = np.array([
         tf_msg.transform.translation.x,

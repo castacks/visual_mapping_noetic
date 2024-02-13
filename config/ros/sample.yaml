@@ -4,8 +4,8 @@ image_processing:
     image_compressed: False
 
 pointcloud:
-#    topic: /velodyne_1/velodyne_points
-    topic: /coloroze_pcl_node/colorized_pcl
+    topic: /velodyne_1/velodyne_points
+#    topic: /coloroze_pcl_node/colorized_pcl
 
 odometry:
     topic: /integrated_to_init
@@ -17,10 +17,14 @@ dino:
     dino_type: dinov2_vitb14
     dino_layer: 10
     image_insize: [686, 364] #this should be the size of the input images
+#    image_insize: [1036, 546] #this should be the size of the input images
 
 #TODO get this from tf
+intrinsics:
+    K: [455.7750, 0., 497.1180, 0., 456.3191, 251.8580, 0., 0., 1.]
+
 extrinsics:
-    p: [0.0, 0.0, -0.127]
+    p: [0.0, 0.0, -0.1274]
     q: [-0.549, 0.554, -0.445, -0.440] #xyzw
 
 localmapping:
@@ -32,3 +36,5 @@ localmapping:
         resolution: 0.5
 
 device: cuda
+#viz: True
+viz: False
