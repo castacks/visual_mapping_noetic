@@ -92,6 +92,7 @@ class DinoMappingNode:
 
         self.pcl_pub = rospy.Publisher('/dino_pcl', PointCloud2, queue_size=1)
         self.gridmap_pub = rospy.Publisher('/dino_gridmap', GridMap, queue_size=1)
+        self.image_pub = rospy.Publisher('/dino_image', Image, queue_size=1)
 
         self.rate = rospy.Rate(10)
 
@@ -427,6 +428,21 @@ class DinoMappingNode:
 
         pcl_msg = self.make_pcl_msg(res['dino_pcl'])
         self.pcl_pub.publish(pcl_msg)
+
+        if self.mode == 'pca':
+            vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
+            vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
+            viz_img = ((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0., 1.).cpu().numpy() * 255
+        elif self.mode == 'vlad':
+            da = np.argmin(res['dino_image'].cpu().numpy(),axis=-1)
+            # mins = np.min(da,axis=-1)
+            # gridmap_da[mins/26 > .85] = -1
+            viz_img = (self.Csub[da]*255).astype(np.int32)
+
+        # img_msg = self.bridge.cv2_to_imgmsg(vimg, "bgr8")
+        img_msg = self.bridge.cv2_to_imgmsg(viz_img.astype(np.uint8), "rgb8")
+        img_msg.header.stamp = pcl_msg.header.stamp
+        self.image_pub.publish(img_msg)
 
     def spin(self):
         import matplotlib.pyplot as plt
