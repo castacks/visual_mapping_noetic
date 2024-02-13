@@ -24,7 +24,7 @@ def localmap_from_pointcloud(pcl_pos, pcl_data, metadata, reduction='mean'):
     res_map = torch.zeros(nx, ny, pcl_data.shape[-1], device=pcl_data.device)
     raster_map = res_map.view(-1, pcl_data.shape[-1])
 
-    scatter(pcl_data[valid_mask], raster_idxs, dim=0, out=raster_map, reduce='mean')
+    scatter(pcl_data[valid_mask], raster_idxs, dim=0, out=raster_map, reduce=reduction)
     res_unk_map = torch.linalg.norm(res_map, dim=-1) > 1e-6
 
     return res_map, res_unk_map, metadata

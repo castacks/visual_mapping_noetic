@@ -1,0 +1,37 @@
+image_processing:
+    image_topic: /multisense/left/image_rect_color
+    camera_info_topic: /multisense/left/camera_info
+    image_compressed: False
+
+pointcloud:
+  # topic: /full_cloud
+   topic: /velodyne_1/velodyne_points
+    # topic: /coloroze_pcl_node/colorized_pcl
+
+odometry:
+    topic: /integrated_to_init
+
+vlad:
+    n_clusters : 8
+    cache_dir :  /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/dino_clusters/8_clusters_532
+
+
+dino:
+    dino_type: dinov2_vitb14
+    dino_layer: 10
+    image_insize: [686, 364] #this should be the size of the input images
+
+#TODO get this from tf
+extrinsics:
+    p: [0.0, 0.0, -0.127]
+    q: [-0.549, 0.554, -0.445, -0.440] #xyzw
+
+localmapping:
+    ema: 0.2 #higher->use recent more
+    metadata:
+        origin: [-50., -50.]
+        length_x: 100.
+        length_y: 100.
+        resolution: 0.5
+
+device: cuda
