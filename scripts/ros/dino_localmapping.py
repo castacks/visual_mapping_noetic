@@ -1,23 +1,25 @@
 import yaml
 import rospy
+import numpy as np
+np.float = np.float64 #hack for numpify
+
 import ros_numpy
 import tf2_ros
 import torch
-import numpy as np
 import cv_bridge
 
-np.float = np.float64 #hack for numpify
+import distinctipy as COLORS
 
 from sensor_msgs.msg import PointCloud2, CameraInfo, Image, CompressedImage
 from nav_msgs.msg import Odometry
 from grid_map_msgs.msg import GridMap
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Float32
 
-from physics_atv_visual_mapping.image_processing.anyloc_utils import DinoV2ExtractFeatures
+from physics_atv_visual_mapping.image_processing.anyloc_utils import DinoV2ExtractFeatures, VLAD
 from physics_atv_visual_mapping.pointcloud_colorization.torch_color_pcl_utils import *
 from physics_atv_visual_mapping.localmapping.localmapping import *
 from physics_atv_visual_mapping.utils import *
-    
+
 class DinoMappingNode:
     """
     Hacky implementation of visual mapping node for debug
@@ -33,13 +35,33 @@ class DinoMappingNode:
         self.localmap_ema = config['localmapping']['ema']
         self.last_update_time = 0.
 
+        if 'pca' in config:
+            self.mode = 'pca'
+        else:
+            self.mode = 'vlad'
+
+        if self.mode == 'pca':
+            desc_facet: Literal["query", "key", "value", "token"] = "token"
+            self.dino_pca = torch.load(config['pca']['fp'], map_location=config['device'])
+
+        elif self.mode == 'vlad':
+            desc_facet: Literal["query", "key", "value", "token"] = "value"
+            vlad_config = config['vlad']
+            vlad = VLAD(vlad_config['n_clusters'], desc_dim=None,cache_dir=vlad_config['cache_dir'])
+            vlad.fit(None)
+            self.vlad = vlad
+            self.Csub = np.array(COLORS.get_colors(32, rng=1))
+            self.Csub = np.concatenate([self.Csub,np.zeros([1,3])],axis=0)
+        else:
+            print("NO MODE SET")
+
         self.dino = DinoV2ExtractFeatures(
             dino_model=config['dino']['dino_type'],
             layer=config['dino']['dino_layer'],
             input_size=config['dino']['image_insize'],
+            facet=desc_facet,
             device=config['device']
         )
-        self.dino_pca = torch.load(config['pca']['fp'], map_location=config['device'])
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -53,6 +75,11 @@ class DinoMappingNode:
             self.image_sub = rospy.Subscriber(config['image_processing']['image_topic'], Image, self.handle_img, queue_size=1)
 
         self.intrinsics = torch.tensor(rospy.wait_for_message(config['image_processing']['camera_info_topic'], CameraInfo).K, device=config['device']).reshape(3,3).float()
+
+        # self.intrinsics = torch.tensor([[455.7750,   0.0000, 497.1180],
+        # [  0.0000, 456.3191, 251.5850],
+        # [  0.0000,   0.0000,   1.0000]], device=config['device']).float()
+
         self.dino_intrinsics = None
 
         self.extrinsics = pose_to_htm(np.concatenate([
@@ -65,7 +92,7 @@ class DinoMappingNode:
 
         self.pcl_pub = rospy.Publisher('/dino_pcl', PointCloud2, queue_size=1)
         self.gridmap_pub = rospy.Publisher('/dino_gridmap', GridMap, queue_size=1)
-        self.image_pub = rospy.Publisher('/dino_img', Image, queue_size=1)
+        self.image_pub = rospy.Publisher('/dino_image', Image, queue_size=1)
 
         self.rate = rospy.Rate(10)
         self.viz = config['viz']
@@ -135,13 +162,22 @@ class DinoMappingNode:
         if self.compressed_img:
             img = self.bridge.compressed_imgmsg_to_cv2(self.img_msg, desired_encoding='rgb8')/255.
         else:
-            img = self.bridge.imgmsg_to_cv2(self.img_msg, desired_encoding='rgb8')/255.
+            img = self.bridge.imgmsg_to_cv2(self.img_msg, desired_encoding='rgb8').astype(np.float32)/255.
 
         #run the image through dino
         dino_img = self.dino(img)[0]
-        dino_img_norm = dino_img.view(-1, dino_img.shape[-1]) - self.dino_pca['mean'].view(1,-1)
-        dino_pca = dino_img_norm.unsqueeze(1) @ self.dino_pca['V'].unsqueeze(0)
-        dino_img = dino_pca.view(dino_img.shape[0], dino_img.shape[1], -1)
+
+        ###
+        if self.mode == 'pca':
+            dino_img_norm = dino_img.view(-1, dino_img.shape[-1]) - self.dino_pca['mean'].view(1,-1)
+            dino_pca = dino_img_norm.unsqueeze(1) @ self.dino_pca['V'].unsqueeze(0)
+            dino_img = dino_pca.view(dino_img.shape[0], dino_img.shape[1], -1)
+        elif self.mode == 'vlad':
+            res = self.vlad.generate_res_vec(dino_img.view(-1, dino_img.shape[-1]))
+            dino_img = res.abs().sum(dim=2).view(self.dino.output_size[1],self.dino.output_size[0],-1)
+            # print(res_sum.shape)
+            # da = res.abs().sum(dim=2).argmin(dim=1).view(self.dino.output_size[1],self.dino.output_size[0])
+            # dino_img = self.Csub[da.long()].float()
 
         #need to scale intrinsics to dino resolution
         dino_rx = img.shape[0] / dino_img.shape[0]
@@ -223,7 +259,7 @@ class DinoMappingNode:
         gridmap_msg.info.pose.position.x = localmap['metadata']['origin'][0].item() + 0.5*gridmap_msg.info.length_x
         gridmap_msg.info.pose.position.y = localmap['metadata']['origin'][1].item() + 0.5*gridmap_msg.info.length_y
         gridmap_msg.info.pose.position.z = self.odom_msg.pose.pose.position.z
-        gridmap_msg.info.pose.orientation.z = 1.
+        gridmap_msg.info.pose.orientation.w = 1.
 
         for i in range(gridmap_data.shape[-1]):
             layer_data = gridmap_data[..., i]
@@ -249,7 +285,7 @@ class DinoMappingNode:
 
         #add dummy elevation
         gridmap_msg.layers.append('elevation')
-        layer_data = np.zeros_like(gridmap_data[...,0])
+        layer_data = np.zeros_like(gridmap_data[...,0]) + self.odom_msg.pose.pose.position.z - 1.73
         gridmap_layer_msg = Float32MultiArray()
         gridmap_layer_msg.layout.dim.append(
             MultiArrayDimension(
@@ -270,11 +306,19 @@ class DinoMappingNode:
         gridmap_msg.data.append(gridmap_layer_msg)
 
         #Add rgb viz of top 3
-        gridmap_rgb = gridmap_data[..., :3]
-        vmin = gridmap_rgb.reshape(-1, 3).min(axis=0).reshape(1,1,3)
-        vmax = gridmap_rgb.reshape(-1, 3).max(axis=0).reshape(1,1,3)
-        gridmap_cs = (gridmap_rgb-vmin)/(vmax-vmin)
-        gridmap_cs = (gridmap_cs*255.).astype(np.int32)
+        ###
+        if self.mode == 'pca':
+            gridmap_rgb = gridmap_data[..., :3]
+            vmin = gridmap_rgb.reshape(-1, 3).min(axis=0).reshape(1,1,3)
+            vmax = gridmap_rgb.reshape(-1, 3).max(axis=0).reshape(1,1,3)
+            gridmap_cs = (gridmap_rgb-vmin)/(vmax-vmin)
+            gridmap_cs = (gridmap_cs*255.).astype(np.int32)
+        elif self.mode == 'vlad':
+            gridmap_da = np.argmin(gridmap_data,axis=-1)
+            mins = np.min(gridmap_data,axis=-1)
+            gridmap_da[mins/26 > .85] = -1
+            gridmap_cs = (self.Csub[gridmap_da]*255).astype(np.int32)
+
         gridmap_color = gridmap_cs[..., 0] * (2**16) + gridmap_cs[..., 1] * (2**8) + gridmap_cs[..., 2]
         gridmap_color = gridmap_color.view(dtype=np.float32)
 
@@ -322,7 +366,7 @@ class DinoMappingNode:
 
     def xyz_array_to_point_cloud_msg(self, points, frame, timestamp=None, rgb_values=None):
         """
-        Modified from: https://github.com/castacks/physics_atv_deep_stereo_vo/blob/main/src/stereo_node_multisense.py 
+        Modified from: https://github.com/castacks/physics_atv_deep_stereo_vo/blob/main/src/stereo_node_multisense.py
         Please refer to this ros answer about the usage of point cloud message:
             https://answers.ros.org/question/234455/pointcloud2-and-pointfield/
         :param points:
@@ -358,14 +402,14 @@ class DinoMappingNode:
         else:
             msg.fields = [PointField('x', 0, PointField.FLOAT32, 1),
                           PointField('y', 4, PointField.FLOAT32, 1),
-                          PointField('z', 8, PointField.FLOAT32, 1), 
+                          PointField('z', 8, PointField.FLOAT32, 1),
                           PointField('rgb', 12, PointField.UINT32, 1),]
             msg.point_step = 16
             msg.row_step = msg.point_step * msg.width
 
             xyzcolor = np.zeros( (points.shape[0], 1), \
-            dtype={ 
-                "names": ( "x", "y", "z", "rgba" ), 
+            dtype={
+                "names": ( "x", "y", "z", "rgba" ),
                 "formats": ( "f4", "f4", "f4", "u4" )} )
             xyzcolor["x"] = points[:, 0].reshape((-1, 1))
             xyzcolor["y"] = points[:, 1].reshape((-1, 1))
@@ -389,6 +433,21 @@ class DinoMappingNode:
 
         pcl_msg = self.make_pcl_msg(res['dino_pcl'])
         self.pcl_pub.publish(pcl_msg)
+
+        if self.mode == 'pca':
+            vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
+            vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
+            viz_img = ((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0., 1.).cpu().numpy() * 255
+        elif self.mode == 'vlad':
+            da = np.argmin(res['dino_image'].cpu().numpy(),axis=-1)
+            # mins = np.min(da,axis=-1)
+            # gridmap_da[mins/26 > .85] = -1
+            viz_img = (self.Csub[da]*255).astype(np.int32)
+
+        # img_msg = self.bridge.cv2_to_imgmsg(vimg, "bgr8")
+        img_msg = self.bridge.cv2_to_imgmsg(viz_img.astype(np.uint8), "rgb8")
+        img_msg.header.stamp = pcl_msg.header.stamp
+        self.image_pub.publish(img_msg)
 
     def spin(self):
         import matplotlib.pyplot as plt

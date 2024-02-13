@@ -59,7 +59,8 @@ class ColorizePclNode:
 
         if self.dino:
             # input_size = (int(14*(546//(14*self.down_sample_factor))),int(14*(1036//(14*self.down_sample_factor))))
-            input_size = (364,686)
+            # input_size = (364,686)
+            input_size = (686,364)
             desc_layer: int = config['DINO']['desc_layer']
             desc_facet: Literal["query", "key", "value", "token"] = "value"
             encoder = DinoV2ExtractFeatures(config['DINO']['model'], desc_layer, input_size,
@@ -199,21 +200,26 @@ class ColorizePclNode:
 
             if self.dino:
                 image = self.image.astype(np.float32)/255.0
-                image = image[:,:,[2,1,0]]
-                print('swapped')
+                # image = image[:,:,[2,1,0]]
+                # print('swapped')
                 #TODO CHECK RGB VS BGR
-
+                # print(image.shape)
+                # pre (544, 1024, 3)
+                # post (364, 686, 3)
+                # print('input', image.shape)
                 feat_vec = self.dino_encoder(image)[0]
 
-                res = self.vlad.generate_res_vec(feat_vec)
+                res = self.vlad.generate_res_vec(feat_vec.view(-1,768))
 
-                da = res.abs().sum(dim=2).argmin(dim=1).reshape(self.dino_encoder.out_size[0], self.dino_encoder.out_size[1]).to(self.device)
+                da = res.abs().sum(dim=2).argmin(dim=1).reshape(self.dino_encoder.output_size[1], self.dino_encoder.output_size[0]).to(self.device)
                 # print('u2 ', time.perf_counter() - unc_now)
                 # da = F.interpolate(da[None, None, ...].to(float),
                 # (img.shape[0],img.shape[1]), mode='nearest')[0, 0].to(da.dtype)
                 # print('u3 ', time.perf_counter() - unc_now)
 
-                image = self.Csub[da.long()]
+                image = self.Csub[da.long()].float()
+                # cv2.imshow('test', image[:,:,[2,1,0]].cpu().numpy())
+                # cv2.waitKey(1)
                 # print(self.Csub.dtype)
 
                 intrinsics = self.dino_intrinsics
