@@ -35,3 +35,4 @@ localmapping:
         resolution: 0.5
 
 device: cuda
+viz: False
