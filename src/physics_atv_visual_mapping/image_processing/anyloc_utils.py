@@ -50,10 +50,17 @@ class DinoV2ExtractFeatures:
             - device:   PyTorch device to use
         """
         self.vit_type: str = dino_model
-        self.dino_model: nn.Module = torch.hub.load(
+        #self.dino_model: nn.Module = torch.hub.load(
+        #        'facebookresearch/dinov2', dino_model)
+        
+        try:
+            self.dino_model: nn.Module = torch.hub.load(
+                    '/home/physics_atv/.cache/torch/hub/facebookresearch_dinov2_main',dino_model,source='local')
+                #'/home/matthew/.cache/torch/hub/facebookresearch_dinov2_main', dino_model,source='local')
+        except:
+            self.dino_model: nn.Module = torch.hub.load(
                 'facebookresearch/dinov2', dino_model)
-        # self.dino_model: nn.Module = torch.hub.load(
-                # '/home/matthew/.cache/torch/hub/facebookresearch_dinov2_main', dino_model,source='local')
+
         self.device = torch.device(device)
         self.dino_model.blocks = nn.Sequential(*list(self.dino_model.blocks.children())[:-1])
         self.dino_model.norm = torch.nn.Identity()

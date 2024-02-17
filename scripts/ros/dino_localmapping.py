@@ -76,10 +76,6 @@ class DinoMappingNode:
 
         self.intrinsics = torch.tensor(rospy.wait_for_message(config['image_processing']['camera_info_topic'], CameraInfo).K, device=config['device']).reshape(3,3).float()
 
-        # self.intrinsics = torch.tensor([[455.7750,   0.0000, 497.1180],
-        # [  0.0000, 456.3191, 251.5850],
-        # [  0.0000,   0.0000,   1.0000]], device=config['device']).float()
-
         self.dino_intrinsics = None
 
         self.extrinsics = pose_to_htm(np.concatenate([

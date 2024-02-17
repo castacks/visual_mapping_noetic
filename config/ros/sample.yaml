@@ -10,12 +10,18 @@ pointcloud:
 odometry:
     topic: /integrated_to_init
 
+gridmap:
+    topic: local_gridmap
+
 pca:
     fp: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/pca/debug.pt
+#    fp: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/pca/vitl_debug.pt
 
 dino:
     dino_type: dinov2_vitb14
     dino_layer: 10
+#    dino_type: dinov2_vitl14
+#    dino_layer: 20
     image_insize: [686, 364] #this should be the size of the input images
 #    image_insize: [1036, 546] #this should be the size of the input images
 
@@ -30,9 +36,9 @@ extrinsics:
 localmapping:
     ema: 0.1 #higher->use recent more
     metadata:
-        origin: [-50., -50.]
-        length_x: 100.
-        length_y: 100.
+        origin: [-60., -60.]
+        length_x: 120.
+        length_y: 120.
         resolution: 0.5
 
 device: cuda

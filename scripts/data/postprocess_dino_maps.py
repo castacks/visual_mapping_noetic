@@ -56,7 +56,7 @@ if __name__ == '__main__':
     poses = poses[1:][mask]
     pose_ts = pose_ts[1:][mask]
 
-    traj_interp = TrajectoryInterpolator(pose_ts, poses, tol=0.15)
+    traj_interp = TrajectoryInterpolator(pose_ts, poses, tol=0.5)
 
     ## next compute gridmap sample times
     gridmap_dir = os.path.join(args.run_dir, args.gridmap)
@@ -174,5 +174,5 @@ if __name__ == '__main__':
         with open(out_metadata_fp, 'w') as fh:
             yaml.dump(metadata_out, fh)
 
-        if gi % 1000 == 0:
-            plt.imshow(normalize_dino(localmap_agg['data']).cpu());plt.show()
+#        if gi % 1000 == 0:
+#            plt.imshow(normalize_dino(localmap_agg['data']).cpu());plt.show()

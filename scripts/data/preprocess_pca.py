@@ -68,45 +68,48 @@ if __name__ == '__main__':
     dino_buf = []
 
     for pcl_idx in tqdm.tqdm(pcl_valid_idxs):
-        pcl_fp = os.path.join(pcl_dir, '{:06d}.npy'.format(pcl_idx))
-        pcl = torch.from_numpy(np.load(pcl_fp)).to(config['device'])
+        if pcl_idx % 10 == 0:
+            pcl_fp = os.path.join(pcl_dir, '{:06d}.npy'.format(pcl_idx))
+            pcl = torch.from_numpy(np.load(pcl_fp)).to(config['device']).float()
 
-        pcl_dists = torch.linalg.norm(pcl[:, :3], dim=-1)
-        pcl_mask = (pcl_dists > config['pcl_mindist']) & (pcl_dists < config['pcl_maxdist'])
-        pcl = pcl[pcl_mask]
+            pcl_dists = torch.linalg.norm(pcl[:, :3], dim=-1)
+            pcl_mask = (pcl_dists > config['pcl_mindist']) & (pcl_dists < config['pcl_maxdist'])
+            pcl = pcl[pcl_mask]
 
-        img_idx = pcl_img_argmin[pcl_idx]
-        img_fp = os.path.join(img_dir, '{:06d}.png'.format(img_idx))
-        img = cv2.imread(img_fp)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)/255.
+            pcl = pcl[:, :3] #assume first three are [x,y,z]
 
-        dino_feats = dino(img)[0]
+            img_idx = pcl_img_argmin[pcl_idx]
+            img_fp = os.path.join(img_dir, '{:06d}.png'.format(img_idx))
+            img = cv2.imread(img_fp)
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)/255.
 
-        extent = (
-            dino_feats.shape[1],
-            0,
-            0,
-            dino_feats.shape[0]
-        )
+            dino_feats = dino(img)[0]
 
-        #project points into image space
-        dino_rx = img.shape[1] / dino.output_size[0]
-        dino_ry = img.shape[0] / dino.output_size[1]
-        dino_intrinsics = intrinsics.clone()
-        dino_intrinsics[0, 0] /= dino_rx
-        dino_intrinsics[0, 2] /= dino_rx
-        dino_intrinsics[1, 1] /= dino_ry
-        dino_intrinsics[1, 2] /= dino_ry
+            extent = (
+                dino_feats.shape[1],
+                0,
+                0,
+                dino_feats.shape[0]
+            )
 
-        P = obtain_projection_matrix(dino_intrinsics, extrinsics).to(config['device'])
-        pcl_pixel_coords = get_pixel_from_3D_source(pcl, P)
-        pcl_in_frame, pixels_in_frame, ind_in_frame = get_points_and_pixels_in_frame(pcl, pcl_pixel_coords, dino_feats.shape[0], dino_feats.shape[1])
+            #project points into image space
+            dino_rx = img.shape[1] / dino.output_size[0]
+            dino_ry = img.shape[0] / dino.output_size[1]
+            dino_intrinsics = intrinsics.clone()
+            dino_intrinsics[0, 0] /= dino_rx
+            dino_intrinsics[0, 2] /= dino_rx
+            dino_intrinsics[1, 1] /= dino_ry
+            dino_intrinsics[1, 2] /= dino_ry
 
-        pcl_px_in_frame = pcl_pixel_coords[ind_in_frame]
-        dino_idxs = pixels_in_frame.unique(dim=0) #only get feats with a lidar return
+            P = obtain_projection_matrix(dino_intrinsics, extrinsics).to(config['device'])
+            pcl_pixel_coords = get_pixel_from_3D_source(pcl, P)
+            pcl_in_frame, pixels_in_frame, ind_in_frame = get_points_and_pixels_in_frame(pcl, pcl_pixel_coords, dino_feats.shape[0], dino_feats.shape[1])
 
-        mask_dino_feats = dino_feats[dino_idxs[:, 1], dino_idxs[:, 0]]
-        dino_buf.append(mask_dino_feats)
+            pcl_px_in_frame = pcl_pixel_coords[ind_in_frame]
+            dino_idxs = pixels_in_frame.unique(dim=0) #only get feats with a lidar return
+
+            mask_dino_feats = dino_feats[dino_idxs[:, 1], dino_idxs[:, 0]]
+            dino_buf.append(mask_dino_feats)
 
         """
         if pcl_idx % 100 == 0:
@@ -143,11 +146,13 @@ if __name__ == '__main__':
     for pcl_idx in tqdm.tqdm(pcl_valid_idxs):
         if pcl_idx % 20 == 0:
             pcl_fp = os.path.join(pcl_dir, '{:06d}.npy'.format(pcl_idx))
-            pcl = torch.from_numpy(np.load(pcl_fp)).to(config['device'])
+            pcl = torch.from_numpy(np.load(pcl_fp)).to(config['device']).float()
 
             pcl_dists = torch.linalg.norm(pcl[:, :3], dim=-1)
             pcl_mask = (pcl_dists > config['pcl_mindist']) & (pcl_dists < config['pcl_maxdist'])
             pcl = pcl[pcl_mask]
+
+            pcl = pcl[:, :3] #assume first three are [x,y,z]
 
             img_idx = pcl_img_argmin[pcl_idx]
             img_fp = os.path.join(img_dir, '{:06d}.png'.format(img_idx))
