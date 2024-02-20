@@ -7,6 +7,8 @@ import ros_numpy
 import tf2_ros
 import torch
 import cv_bridge
+import rospkg
+import os
 
 import distinctipy as COLORS
 
@@ -55,7 +57,10 @@ class DinoMappingNode:
         else:
             print("NO MODE SET")
 
-        self.dino = DinoV2ExtractFeatures(
+        rp = rospkg.RosPack()
+        dino_dir = os.path.join(rp.get_path("physics_atv_visual_mapping"), "models/hub")
+
+        self.dino = DinoV2ExtractFeatures(dino_dir,
             dino_model=config['dino']['dino_type'],
             layer=config['dino']['dino_layer'],
             input_size=config['dino']['image_insize'],

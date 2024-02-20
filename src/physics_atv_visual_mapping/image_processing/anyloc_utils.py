@@ -34,7 +34,7 @@ class DinoV2ExtractFeatures:
     """
         Extract features from an intermediate layer in Dino-v2
     """
-    def __init__(self, dino_model: _DINO_V2_MODELS, layer: int, input_size: tuple,
+    def __init__(self, dino_dir, dino_model: _DINO_V2_MODELS, layer: int, input_size: tuple,
                 facet: _DINO_FACETS="token", use_cls=False,
                 norm_descs=True, device: str = "cpu") -> None:
         """
@@ -52,14 +52,11 @@ class DinoV2ExtractFeatures:
         self.vit_type: str = dino_model
         #self.dino_model: nn.Module = torch.hub.load(
         #        'facebookresearch/dinov2', dino_model)
-        
-        try:
-            self.dino_model: nn.Module = torch.hub.load(
-                    '/home/physics_atv/.cache/torch/hub/facebookresearch_dinov2_main',dino_model,source='local')
+        print(dino_dir,'________________________________________________________')
+        torch.hub.set_dir(dino_dir)
+        self.dino_model: nn.Module = torch.hub.load(
+                    dino_dir + '/facebookresearch_dinov2_main',dino_model,source='local')
                 #'/home/matthew/.cache/torch/hub/facebookresearch_dinov2_main', dino_model,source='local')
-        except:
-            self.dino_model: nn.Module = torch.hub.load(
-                'facebookresearch/dinov2', dino_model)
 
         self.device = torch.device(device)
         self.dino_model.blocks = nn.Sequential(*list(self.dino_model.blocks.children())[:-1])
