@@ -351,7 +351,7 @@ class DinoMappingNode:
         """
         pcl_pos = pcl[:, :3].cpu().numpy()
 
-        pcl_cs = pcl[:, 3:6]
+        pcl_cs = pcl[:, [5,4,3]]
         vmin = pcl_cs.min(dim=0)[0].view(1,3)
         vmax = pcl_cs.max(dim=0)[0].view(1,3)
         pcl_cs =((pcl_cs - vmin) / (vmax - vmin)).cpu().numpy()
@@ -457,7 +457,7 @@ class DinoMappingNode:
         import time
 
         if self.viz:
-            fig, axs = plt.subplots(2, 2, figsize=(4, 3))
+            fig, axs = plt.subplots(2, 2, figsize=(12, 8))
             axs = axs.flatten()
             plt.show(block=False)
 
