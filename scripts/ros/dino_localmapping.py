@@ -17,7 +17,7 @@ from nav_msgs.msg import Odometry
 from grid_map_msgs.msg import GridMap
 from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Float32
 
-from physics_atv_visual_mapping.image_processing.anyloc_utils import DinoV2ExtractFeatures, VLAD
+from physics_atv_visual_mapping.image_processing.image_pipeline import setup_image_pipeline
 from physics_atv_visual_mapping.pointcloud_colorization.torch_color_pcl_utils import *
 from physics_atv_visual_mapping.localmapping.localmapping import *
 from physics_atv_visual_mapping.utils import *
@@ -37,49 +37,20 @@ class DinoMappingNode:
         self.localmap_ema = config['localmapping']['ema']
         self.last_update_time = 0.
 
-        if 'pca' in config:
-            self.mode = 'pca'
-        else:
-            self.mode = 'vlad'
-
-        if self.mode == 'pca':
-            desc_facet: Literal["query", "key", "value", "token"] = "token"
-            self.dino_pca = torch.load(config['pca']['fp'], map_location=config['device'])
-
-        elif self.mode == 'vlad':
-            desc_facet: Literal["query", "key", "value", "token"] = "value"
-            vlad_config = config['vlad']
-            vlad = VLAD(vlad_config['n_clusters'], desc_dim=None,cache_dir=vlad_config['cache_dir'])
-            vlad.fit(None)
-            self.vlad = vlad
-            self.Csub = np.array(COLORS.get_colors(32, rng=1))
-            self.Csub = np.concatenate([self.Csub,np.zeros([1,3])],axis=0)
-        else:
-            print("NO MODE SET")
-
-        rp = rospkg.RosPack()
-        dino_dir = os.path.join(rp.get_path("physics_atv_visual_mapping"), "models/hub")
-
-        self.dino = DinoV2ExtractFeatures(dino_dir,
-            dino_model=config['dino']['dino_type'],
-            layer=config['dino']['dino_layer'],
-            input_size=config['dino']['image_insize'],
-            facet=desc_facet,
-            device=config['device']
-        )
+        self.image_pipeline = setup_image_pipeline(config)
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
 
         self.bridge = cv_bridge.CvBridge()
 
-        self.compressed_img = config['image_processing']['image_compressed']
+        self.compressed_img = config['image']['image_compressed']
         if self.compressed_img:
-            self.image_sub = rospy.Subscriber(config['image_processing']['image_topic'], CompressedImage, self.handle_img, queue_size=1)
+            self.image_sub = rospy.Subscriber(config['image']['image_topic'], CompressedImage, self.handle_img, queue_size=1)
         else:
-            self.image_sub = rospy.Subscriber(config['image_processing']['image_topic'], Image, self.handle_img, queue_size=1)
+            self.image_sub = rospy.Subscriber(config['image']['image_topic'], Image, self.handle_img, queue_size=1)
 
-        self.intrinsics = torch.tensor(rospy.wait_for_message(config['image_processing']['camera_info_topic'], CameraInfo).K, device=config['device']).reshape(3,3).float()
+        self.intrinsics = torch.tensor(rospy.wait_for_message(config['image']['camera_info_topic'], CameraInfo).K, device=config['device']).reshape(3,3).float()
 
         self.dino_intrinsics = None
 
@@ -165,29 +136,13 @@ class DinoMappingNode:
         else:
             img = self.bridge.imgmsg_to_cv2(self.img_msg, desired_encoding='rgb8').astype(np.float32)/255.
 
-        #run the image through dino
-        dino_img = self.dino(img)[0]
+        img = torch.tensor(img).unsqueeze(0).permute(0,3,1,2)
 
-        ###
-        if self.mode == 'pca':
-            dino_img_norm = dino_img.view(-1, dino_img.shape[-1]) - self.dino_pca['mean'].view(1,-1)
-            dino_pca = dino_img_norm.unsqueeze(1) @ self.dino_pca['V'].unsqueeze(0)
-            dino_img = dino_pca.view(dino_img.shape[0], dino_img.shape[1], -1)
-        elif self.mode == 'vlad':
-            res = self.vlad.generate_res_vec(dino_img.view(-1, dino_img.shape[-1]))
-            dino_img = res.abs().sum(dim=2).view(self.dino.output_size[1],self.dino.output_size[0],-1)
-            # print(res_sum.shape)
-            # da = res.abs().sum(dim=2).argmin(dim=1).view(self.dino.output_size[1],self.dino.output_size[0])
-            # dino_img = self.Csub[da.long()].float()
+        dino_img, dino_intrinsics = self.image_pipeline.run(img, self.intrinsics.unsqueeze(0))
 
-        #need to scale intrinsics to dino resolution
-        dino_rx = img.shape[0] / dino_img.shape[0]
-        dino_ry = img.shape[1] / dino_img.shape[1]
-        dino_intrinsics = self.intrinsics.clone()
-        dino_intrinsics[0, 0]/=dino_rx
-        dino_intrinsics[0, 2]/=dino_rx
-        dino_intrinsics[1, 1]/=dino_ry
-        dino_intrinsics[1, 2]/=dino_ry
+        #move back to channels-last
+        dino_img = dino_img[0].permute(1,2,0)
+        dino_intrinsics = dino_intrinsics[0]
 
         #need to compute the transform from the odom frame to the image frame
         #do it this way to account for pcl time sync
@@ -306,6 +261,7 @@ class DinoMappingNode:
         gridmap_layer_msg.data = layer_data.flatten()
         gridmap_msg.data.append(gridmap_layer_msg)
 
+        """
         #Add rgb viz of top 3
         ###
         if self.mode == 'pca':
@@ -319,6 +275,14 @@ class DinoMappingNode:
             mins = np.min(gridmap_data,axis=-1)
             gridmap_da[mins/26 > .85] = -1
             gridmap_cs = (self.Csub[gridmap_da]*255).astype(np.int32)
+        """
+
+        #TODO: figure out how to support multiple viz output types
+        gridmap_rgb = gridmap_data[..., :3]
+        vmin = gridmap_rgb.reshape(-1, 3).min(axis=0).reshape(1,1,3)
+        vmax = gridmap_rgb.reshape(-1, 3).max(axis=0).reshape(1,1,3)
+        gridmap_cs = (gridmap_rgb-vmin)/(vmax-vmin)
+        gridmap_cs = (gridmap_cs*255.).astype(np.int32)
 
         gridmap_color = gridmap_cs[..., 0] * (2**16) + gridmap_cs[..., 1] * (2**8) + gridmap_cs[..., 2]
         gridmap_color = gridmap_color.view(dtype=np.float32)
@@ -435,6 +399,7 @@ class DinoMappingNode:
         pcl_msg = self.make_pcl_msg(res['dino_pcl'])
         self.pcl_pub.publish(pcl_msg)
 
+        """
         if self.mode == 'pca':
             vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
             vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
@@ -444,6 +409,12 @@ class DinoMappingNode:
             # mins = np.min(da,axis=-1)
             # gridmap_da[mins/26 > .85] = -1
             viz_img = (self.Csub[da]*255).astype(np.int32)
+        """
+
+        #TODO: figure out how to support multiple viz types
+        vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
+        vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
+        viz_img = ((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0., 1.).cpu().numpy() * 255
 
         # img_msg = self.bridge.cv2_to_imgmsg(vimg, "bgr8")
         img_msg = self.bridge.cv2_to_imgmsg(viz_img.astype(np.uint8), "rgb8")
