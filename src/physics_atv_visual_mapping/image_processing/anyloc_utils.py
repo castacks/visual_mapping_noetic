@@ -11,7 +11,7 @@ from torch.nn import functional as F
 import fast_pytorch_kmeans as fpk
 from typing import Literal, Union, List
 import time
-import cv2
+import torchvision
 
 # %%
 # List of downloads (for testing and data)
@@ -87,12 +87,20 @@ class DinoV2ExtractFeatures:
             self._hook_out = output
         return _forward_hook
 
-    def preprocess(self, img):
-        img = cv2.resize(img,(self.input_size[0],self.input_size[1]))
-        img = torch.from_numpy(img).cuda().float()
-        return img.unsqueeze(0).permute(0,3,1,2)
+#    def preprocess(self, img):
+#        img = cv2.resize(img,(self.input_size[0],self.input_size[1]))
+#        img = torch.from_numpy(img).cuda().float()
+#        return img.unsqueeze(0).permute(0,3,1,2)
 
-    def __call__(self, img: np.ndarray) -> torch.Tensor:
+    def preprocess(self, img):
+        assert len(img.shape) == 4, 'need to batch images'
+        assert img.shape[1] == 3, 'expects channels-first'
+        img = img.cuda().float()
+        img = torchvision.transforms.functional.resize(img,(self.input_size[1],self.input_size[0]))
+        return img
+
+#    def __call__(self, img: np.ndarray) -> torch.Tensor:
+    def __call__(self, img: torch.Tensor) -> torch.Tensor:
         """
             Parameters:
             - img:   The input image
@@ -116,7 +124,8 @@ class DinoV2ExtractFeatures:
             res = F.normalize(res, dim=-1)
         self._hook_out = None   # Reset the hook
 
-        return res.view(img.shape[0], self.output_size[1], self.output_size[0], -1)
+        #switch back to channels-first
+        return res.view(img.shape[0], self.output_size[1], self.output_size[0], -1).permute(0,3,1,2)
 
     def __del__(self):
         self.fh_handle.remove()
