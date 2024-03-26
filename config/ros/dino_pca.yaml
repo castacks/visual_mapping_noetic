@@ -35,36 +35,14 @@ image_processing:
         args:
             fp: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/pca/pca_vitb10_value.pt
 
-    -
-        type: featup
-        args:
-            fp: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/featup/featup_vitb10_value.pt
-
-#    - 
-#      type: vlad
-#      args:
-#          n_clusters: 8
-#          cache_dir: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/dino_clusters/8_clusters_532
-
-
-#    - 
-#      type: ganav
-#      args:
-#        seg_config: /home/physics_atv/physics_atv_ws/src/perception/GANav-offroad/ganav_ws/src/ganav/configs/ours/gascola_config.py
-#        seg_checkpoint: /home/physics_atv/physics_atv_ws/src/perception/GANav-offroad/ganav_ws/src/ganav/work_dirs/gascola_front.pth
-
 localmapping:
+    layer_key: dino
     ema: 0.1 #higher->use recent more
     metadata:
         origin: [-60., -60.]
         length_x: 120.
         length_y: 120.
         resolution: 0.5
-
-#        origin: [-20., -20.]
-#        length_x: 40.
-#        length_y: 40.
-#        resolution: 0.1
 
 device: cuda
 #viz: True

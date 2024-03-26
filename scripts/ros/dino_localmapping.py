@@ -32,9 +32,11 @@ class DinoMappingNode:
         self.odom_msg = None
         self.img_msg = None
         self.odom_frame = None
+
         self.device = config['device']
         self.base_metadata = config['localmapping']['metadata']
         self.localmap_ema = config['localmapping']['ema']
+        self.layer_key = config['localmapping']['layer_key'] if 'layer_key' in config['localmapping'].keys() else 'dino'
         self.last_update_time = 0.
 
         self.image_pipeline = setup_image_pipeline(config)
@@ -207,7 +209,7 @@ class DinoMappingNode:
         #setup metadata
         gridmap_msg.info.header.stamp = self.img_msg.header.stamp
         gridmap_msg.info.header.frame_id = self.odom_frame
-        gridmap_msg.layers = ['dino_{}'.format(i) for i in range(gridmap_data.shape[-1])]
+        gridmap_msg.layers = ['{}_{}'.format(self.layer_key, i) for i in range(gridmap_data.shape[-1])]
 
         gridmap_msg.info.resolution = localmap['metadata']['resolution'].item()
         gridmap_msg.info.length_x = localmap['metadata']['length_x'].item()
