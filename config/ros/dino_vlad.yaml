@@ -4,7 +4,8 @@ image:
     image_compressed: False
 
 pointcloud:
-    topic: /velodyne_1/velodyne_points
+    # topic: /velodyne_1/velodyne_points
+    topic: /full_cloud
 #    topic: /coloroze_pcl_node/colorized_pcl
 
 odometry:
@@ -33,11 +34,11 @@ image_processing:
             desc_facet: value
 #            desc_facet: token
 
-    - 
-      type: vlad
-      args:
-          n_clusters: 8
-          cache_dir: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/dino_clusters/8_clusters_686_384_
+    -
+        type: vlad
+        args:
+            n_clusters: 8
+            cache_dir: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/dino_clusters/8_clusters_364x686_
 
 localmapping:
     layer_key: VLAD
@@ -48,10 +49,10 @@ localmapping:
         length_y: 120.
         resolution: 0.5
 
-#        origin: [-20., -20.]
-#        length_x: 40.
-#        length_y: 40.
-#        resolution: 0.1
+       # origin: [-20., -20.]
+       # length_x: 40.
+       # length_y: 40.
+       # resolution: 0.1
 
 device: cuda
 #viz: True
