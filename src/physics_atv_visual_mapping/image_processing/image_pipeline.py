@@ -4,7 +4,7 @@ import numpy as np
 from physics_atv_visual_mapping.image_processing.processing_blocks.dino import Dinov2Block
 from physics_atv_visual_mapping.image_processing.processing_blocks.pca import PCABlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.vlad import VLADBlock
-#from physics_atv_visual_mapping.image_processing.processing_blocks.ganav import GANavBlock
+from physics_atv_visual_mapping.image_processing.processing_blocks.ganav import GANavBlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.featup import FeatUpBlock
 
 from physics_atv_visual_mapping.utils import normalize_dino

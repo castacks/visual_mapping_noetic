@@ -14,6 +14,7 @@ class GANavBlock(ImageProcessingBlock):
     def __init__(self, seg_config, seg_checkpoint, device):
         self.seg_model = init_segmentor(seg_config, seg_checkpoint, device)
         self.outsize = (688, 550) #this is the size GANav runs on
+        self.device = device
 
     def run(self, image, intrinsics, image_orig):
         seg_res = []
@@ -26,7 +27,7 @@ class GANavBlock(ImageProcessingBlock):
             img = cv2.resize(img, self.outsize, interpolation = cv2.INTER_AREA)
 
             res = inference_segmentor(self.seg_model, img, logit_in=True)
-            seg = torch.tensor(res[0]).float()
+            seg = torch.tensor(res[0], device=self.device).float()
             seg_res.append(seg)
 
         seg_res = torch.stack(seg_res, dim=0)
