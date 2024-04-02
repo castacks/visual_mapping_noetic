@@ -9,7 +9,7 @@ from physics_atv_visual_mapping.image_processing.processing_blocks.base import I
 
 class GANavBlock(ImageProcessingBlock):
     """
-    Image processing block that from GANav for semantic probabilities
+    Image processing block that from GANav for semantic logits
     """
     def __init__(self, seg_config, seg_checkpoint, device):
         self.seg_model = init_segmentor(seg_config, seg_checkpoint, device)
@@ -42,4 +42,4 @@ class GANavBlock(ImageProcessingBlock):
         intrinsics[:, 1, 1] *= ry
         intrinsics[:, 1, 2] *= ry
 
-        return seg_res, intrinsics
+        return seg_res.log(), intrinsics
