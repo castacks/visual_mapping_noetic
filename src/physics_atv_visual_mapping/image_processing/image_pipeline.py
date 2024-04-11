@@ -4,6 +4,7 @@ import numpy as np
 from physics_atv_visual_mapping.image_processing.processing_blocks.dino import Dinov2Block
 from physics_atv_visual_mapping.image_processing.processing_blocks.pca import PCABlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.vlad import VLADBlock
+from physics_atv_visual_mapping.image_processing.processing_blocks.pca_vlad import PCAVLADBlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.ganav import GANavBlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.featup import FeatUpBlock
 
@@ -23,6 +24,8 @@ def setup_image_pipeline(config):
             block = PCABlock(**block_config['args'])
         elif btype == 'vlad':
             block = VLADBlock(**block_config['args'])
+        elif btype == 'pca_vlad':
+            block = PCAVLADBlock(**block_config['args'])
         elif btype == 'ganav':
             block = GANavBlock(**block_config['args'])
         elif btype == 'featup':

@@ -34,12 +34,20 @@ image_processing:
 #            desc_facet: token
 
     - 
-        type: pca
+        type: pca_vlad
         args:
-            fp: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/pca/pca_vitb10_value.pt
+            pca_fp: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/pca/pca_vitb10_value.pt
+            vlad_n_clusters : 8
+            vlad_cache_dir :  /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/dino_clusters/8_clusters_532
 
 localmapping:
-    layer_key: dino
+    layer_keys:
+        -
+            key: dino
+            n: 16
+        -
+            key: VLAD
+            n: 8
     ema: 0.1 #higher->use recent more
     metadata:
         origin: [-40., -40.]

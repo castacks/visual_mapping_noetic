@@ -1,4 +1,5 @@
 import yaml
+import copy
 import rospy
 import numpy as np
 np.float = np.float64 #hack for numpify
@@ -36,7 +37,8 @@ class DinoMappingNode:
         self.device = config['device']
         self.base_metadata = config['localmapping']['metadata']
         self.localmap_ema = config['localmapping']['ema']
-        self.layer_key = config['localmapping']['layer_key'] if 'layer_key' in config['localmapping'].keys() else 'dino'
+        self.layer_key = config['localmapping']['layer_key'] if 'layer_key' in config['localmapping'].keys() else None
+        self.layer_keys = self.make_layer_keys(config['localmapping']['layer_keys']) if 'layer_keys' in config['localmapping'].keys() else None
         self.last_update_time = 0.
 
         self.image_pipeline = setup_image_pipeline(config)
@@ -70,6 +72,13 @@ class DinoMappingNode:
 
         self.rate = rospy.Rate(10)
         self.viz = config['viz']
+
+    def make_layer_keys(self, layer_keys):
+        out = []
+        for lk in layer_keys:
+            for i in range(lk['n']):
+                out.append('{}_{}'.format(lk['key'], i))
+        return out
 
     def handle_pointcloud(self, msg):
         #temp hack
@@ -209,7 +218,11 @@ class DinoMappingNode:
         #setup metadata
         gridmap_msg.info.header.stamp = self.img_msg.header.stamp
         gridmap_msg.info.header.frame_id = self.odom_frame
-        gridmap_msg.layers = ['{}_{}'.format(self.layer_key, i) for i in range(gridmap_data.shape[-1])]
+
+        if self.layer_keys is None:
+            gridmap_msg.layers = ['{}_{}'.format(self.layer_key, i) for i in range(gridmap_data.shape[-1])]
+        else:
+            gridmap_msg.layers = copy.deepcopy(self.layer_keys)
 
         gridmap_msg.info.resolution = localmap['metadata']['resolution'].item()
         gridmap_msg.info.length_x = localmap['metadata']['length_x'].item()

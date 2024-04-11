@@ -4,9 +4,9 @@ image:
     image_compressed: False
 
 pointcloud:
-    # topic: /velodyne_1/velodyne_points
-    topic: /full_cloud
-#    topic: /coloroze_pcl_node/colorized_pcl
+    topic: /velodyne_1/velodyne_points
+    # topic: /full_cloud
+  #  topic: /coloroze_pcl_node/colorized_pcl
 
 odometry:
     topic: /integrated_to_init
@@ -44,9 +44,9 @@ localmapping:
     layer_key: VLAD
     ema: 0.1 #higher->use recent more
     metadata:
-        origin: [-60., -60.]
-        length_x: 120.
-        length_y: 120.
+        origin: [-40., -40.]
+        length_x: 80.
+        length_y: 80.
         resolution: 0.5
 
        # origin: [-20., -20.]
