@@ -7,11 +7,10 @@ import numpy as np
 import argparse
 import matplotlib.pyplot as plt
 
-from physics_atv_visual_mapping.image_processing.anyloc_utils import DinoV2ExtractFeatures
+from physics_atv_visual_mapping.image_processing.image_pipeline import setup_image_pipeline
 from physics_atv_visual_mapping.geometry_utils import TrajectoryInterpolator
 from physics_atv_visual_mapping.pointcloud_colorization.torch_color_pcl_utils import *
 from physics_atv_visual_mapping.utils import pose_to_htm
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -33,6 +32,9 @@ if __name__ == '__main__':
     intrinsics = get_intrinsics(torch.tensor(config['intrinsics']['K']).reshape(3, 3))
     #dont combin because we need to recalculate given dino
 
+    pipeline = setup_image_pipeline(config)
+
+    """
     ## load Dino extractor
     dino = DinoV2ExtractFeatures(
         dino_model=config['dino_type'],
@@ -40,6 +42,7 @@ if __name__ == '__main__':
         input_size=config['image_insize'],
         device=config['device']
     )
+    """
 
     odom_dir = os.path.join(args.data_dir, config['odometry']['folder'])
     poses = np.load(os.path.join(odom_dir, 'odometry.npy'))
@@ -80,26 +83,18 @@ if __name__ == '__main__':
 
             img_idx = pcl_img_argmin[pcl_idx]
             img_fp = os.path.join(img_dir, '{:06d}.png'.format(img_idx))
-            img = cv2.imread(img_fp)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)/255.
+            img = torch.tensor(cv2.imread(img_fp)).permute(2,0,1)
 
-            dino_feats = dino(img)[0]
+            dino_feats, dino_intrinsics = pipeline.run(img.unsqueeze(0), intrinsics.unsqueeze(0))
+            dino_feats = dino_feats[0].permute(1,2,0)
+            dino_intrinsics = dino_intrinsics[0]
 
             extent = (
-                dino_feats.shape[1],
                 0,
+                dino_feats.shape[1],
                 0,
                 dino_feats.shape[0]
             )
-
-            #project points into image space
-            dino_rx = img.shape[1] / dino.output_size[0]
-            dino_ry = img.shape[0] / dino.output_size[1]
-            dino_intrinsics = intrinsics.clone()
-            dino_intrinsics[0, 0] /= dino_rx
-            dino_intrinsics[0, 2] /= dino_rx
-            dino_intrinsics[1, 1] /= dino_ry
-            dino_intrinsics[1, 2] /= dino_ry
 
             P = obtain_projection_matrix(dino_intrinsics, extrinsics).to(config['device'])
             pcl_pixel_coords = get_pixel_from_3D_source(pcl, P)
@@ -112,14 +107,14 @@ if __name__ == '__main__':
             dino_buf.append(mask_dino_feats)
 
         """
-        if pcl_idx % 100 == 0:
+        if pcl_idx % 10 == 0:
             fig, axs = plt.subplots(1, 3)
             dino_viz = dino_feats[..., :3]
             vmin = dino_viz.view(-1, 3).min(dim=0)[0].view(1,1,3)
             vmax = dino_viz.view(-1, 3).max(dim=0)[0].view(1,1,3)
             dino_viz = (dino_viz-vmin)/(vmax-vmin)
 
-            axs[0].imshow(img, extent=extent)
+            axs[0].imshow(img.permute(1,2,0), extent=extent)
             axs[0].imshow(dino_viz.cpu(), alpha=0.5, extent=extent)
             axs[0].scatter(pcl_px_in_frame[:, 0].cpu(), dino_feats.shape[0]-pcl_px_in_frame[:, 1].cpu(), s=1., alpha=0.5)
 

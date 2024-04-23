@@ -2,6 +2,7 @@ import torch
 import numpy as np
 
 from physics_atv_visual_mapping.image_processing.processing_blocks.dino import Dinov2Block
+from physics_atv_visual_mapping.image_processing.processing_blocks.sam import SAMBlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.pca import PCABlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.vlad import VLADBlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.pca_vlad import PCAVLADBlock
@@ -20,6 +21,8 @@ def setup_image_pipeline(config):
 
         if btype == 'dino':
             block = Dinov2Block(**block_config['args'])
+        elif btype == 'sam':
+            block = SAMBlock(**block_config['args'])
         elif btype == 'pca':
             block = PCABlock(**block_config['args'])
         elif btype == 'vlad':
@@ -69,7 +72,8 @@ if __name__ == '__main__':
     import time
     import matplotlib.pyplot as plt
 
-    config_fp = '/home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/config/ros/debug_frontends.yaml'
+#    config_fp = '/home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/config/ros/debug_frontends.yaml'
+    config_fp = '/home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/config/ros/sam_pca.yaml'
     config = yaml.safe_load(open(config_fp, 'r'))
 
 #    img_dir = '/home/physics_atv/workspace/datasets/dino_contrastive_eval/turnpike_flat/image_left_color/'

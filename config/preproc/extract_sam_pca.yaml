@@ -9,12 +9,11 @@ odometry:
 
 image_processing:
     -
-        type: dino
+        type: sam
         args:
-            dino_type: dinov2_vitb14
-            dino_layer: 10
             image_insize: [686, 364] #this should be the size of the input images
-            desc_facet: value
+            sam_path: /home/physics_atv/workspace/segment_anything_models/sam_vit_b_01ec64.pth
+            sam_type: vit_b #one of [vit_b]
 
 pca_nfeats: 16 #reduce output feats to this dim
 #pca_nfeats: 128 #reduce output feats to this dim
