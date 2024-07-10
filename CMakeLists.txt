@@ -170,6 +170,7 @@ catkin_install_python(PROGRAMS
   scripts/ros/dino_localmapping.py
   scripts/ros/dino_colorization.py
   scripts/ros/colorize_pcl_node_torch.py
+  scripts/ros/cloud_repub.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
 
