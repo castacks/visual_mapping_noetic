@@ -54,8 +54,9 @@ class DinoMappingNode:
         else:
             self.image_sub = rospy.Subscriber(config['image']['image_topic'], Image, self.handle_img, queue_size=1)
 
-        self.intrinsics = torch.tensor(rospy.wait_for_message(config['image']['camera_info_topic'], CameraInfo).K, device=config['device']).reshape(3,3).float()
+        #self.intrinsics = torch.tensor(rospy.wait_for_message(config['image']['camera_info_topic'], CameraInfo).K, device=config['device']).reshape(3,3).float()
 
+        self.intrinsics = torch.tensor(config['intrinsics']['P'], device=config['device']).reshape(3,3).float()
         self.dino_intrinsics = None
 
         self.extrinsics = pose_to_htm(np.concatenate([
@@ -83,7 +84,7 @@ class DinoMappingNode:
     def handle_pointcloud(self, msg):
         #temp hack
         self.pcl_msg = msg
-        self.pcl_msg.header.frame_id = 'vehicle'
+        self.pcl_msg.header.frame_id = 'base_link'
 
     def handle_odom(self, msg):
         if self.odom_frame is None:
@@ -150,6 +151,8 @@ class DinoMappingNode:
         img = torch.tensor(img).unsqueeze(0).permute(0,3,1,2)
 
         dino_img, dino_intrinsics = self.image_pipeline.run(img, self.intrinsics.unsqueeze(0))
+        # dino_img = img.to(self.device)
+        # dino_intrinsics = self.intrinsics.unsqueeze(0).to(self.device)
 
         #move back to channels-last
         dino_img = dino_img[0].permute(1,2,0)
@@ -157,9 +160,9 @@ class DinoMappingNode:
 
         #need to compute the transform from the odom frame to the image frame
         #do it this way to account for pcl time sync
-        if not self.tf_buffer.can_transform(self.pcl_msg.header.frame_id, self.img_msg.header.frame_id, self.img_msg.header.stamp):
-            rospy.logwarn_throttle(1.0, 'cant tf from {} to {} at {}'.format(self.pcl_msg.header.frame_id, self.img_msg.header.frame_id, self.img_msg.header.stamp))
-            return None
+        #if not self.tf_buffer.can_transform(self.pcl_msg.header.frame_id, self.img_msg.header.frame_id, self.img_msg.header.stamp):
+         #   rospy.logwarn_throttle(1.0, 'cant tf from {} to {} at {}'.format(self.pcl_msg.header.frame_id, self.img_msg.header.frame_id, self.img_msg.header.stamp))
+         #   return None
 
         I = get_intrinsics(dino_intrinsics).to(self.device)
         E = get_extrinsics(self.extrinsics).to(self.device)
@@ -218,11 +221,15 @@ class DinoMappingNode:
         #setup metadata
         gridmap_msg.info.header.stamp = self.img_msg.header.stamp
         gridmap_msg.info.header.frame_id = self.odom_frame
+        
+        assert(gridmap_data.shape[-1] == 9, "check if cherie's addition of height is there, if not the following layers definition is not valid")
+        gridmap_msg.layers = ['height', "VLAD_1", "VLAD_2", "VLAD_3", "VLAD_4", "VLAD_5", "VLAD_6", "VLAD_7", "VLAD_8"]
 
-        if self.layer_keys is None:
-            gridmap_msg.layers = ['{}_{}'.format(self.layer_key, i) for i in range(gridmap_data.shape[-1])]
-        else:
-            gridmap_msg.layers = copy.deepcopy(self.layer_keys)
+        # if self.layer_keys is None:
+        #     gridmap_msg.layers = ['{}_{}'.format(self.layer_key, i) for i in range(gridmap_data.shape[-1])]
+        # else:
+        #     gridmap_msg.layers = copy.deepcopy(self.layer_keys)
+            
 
         gridmap_msg.info.resolution = localmap['metadata']['resolution'].item()
         gridmap_msg.info.length_x = localmap['metadata']['length_x'].item()
@@ -429,7 +436,7 @@ class DinoMappingNode:
         #TODO: figure out how to support multiple viz types
         vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
         vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
-        viz_img = ((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0., 1.).cpu().numpy() * 255
+        viz_img = (((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0.5, 1.).cpu().numpy()-0.5) * 255 * 2
 
         # img_msg = self.bridge.cv2_to_imgmsg(vimg, "bgr8")
         img_msg = self.bridge.cv2_to_imgmsg(viz_img.astype(np.uint8), "rgb8")

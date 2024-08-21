@@ -42,9 +42,9 @@ def tf_msg_to_htm(tf_msg):
 def pcl_msg_to_xyz(pcl_msg):
     pcl_np = ros_numpy.numpify(pcl_msg)
     xyz = np.stack([
-        pcl_np['x'],
-        pcl_np['y'],
-        pcl_np['z']
+        pcl_np['x'].flatten(),
+        pcl_np['y'].flatten(),
+        pcl_np['z'].flatten()
     ], axis=-1)
 
     return torch.from_numpy(xyz).float()
@@ -84,6 +84,7 @@ def transform_points(points, htm):
     """
     """
     pt_pos = points[:, :3]
+    print("number of points", pt_pos.shape) # Example: number of points torch.Size([85845, 3])
     pt_pos = torch.cat([
         pt_pos,
         torch.ones_like(pt_pos[:, [0]])

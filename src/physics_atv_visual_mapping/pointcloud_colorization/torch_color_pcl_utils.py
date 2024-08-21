@@ -162,7 +162,7 @@ def get_points_and_pixels_in_frame(lidar_points, pixel_coordinates, image_height
     ## Make sure lidar points are in front of camera
     cond5 = lidar_points_x > 0
     ## Don't count points above a certain height
-    cond6 = lidar_points_z < 10
+    cond6 = lidar_points_z < 1
 
     ind_in_frame = cond1 & cond2 & cond3 & cond4 & cond5 & cond6
 
