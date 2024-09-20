@@ -1,5 +1,5 @@
 import numpy as np
-import rospy
+import rclpy 
 import torch
 #import matplotlib.pyplot as plt
 import cv2
@@ -7,7 +7,6 @@ from functools import reduce
 import time
 import struct
 import std_msgs.msg
-from sensor_msgs import point_cloud2
 from sensor_msgs.msg import PointCloud2, PointField, Image, CameraInfo
 from std_msgs.msg import Header
 
@@ -200,7 +199,7 @@ def xyz_array_to_point_cloud_msg(points, frame, timestamp=None, rgb_values=None)
     header = Header()
     header.frame_id = frame
     if timestamp is None:
-        timestamp = rospy.Time().now()
+        timestamp = rclpy.clock.Clock().now().to_msg()
     header.stamp = timestamp
     msg = PointCloud2()
     msg.header = header

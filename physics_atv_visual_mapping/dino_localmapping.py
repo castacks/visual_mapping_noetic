@@ -1,18 +1,14 @@
+import rclpy
+from rclpy.node import Node
 import yaml
 import copy
-import rospy
 import numpy as np
-np.float = np.float64 #hack for numpify
+np.float = np.float64  # hack for numpify
 
-import ros_numpy
 import tf2_ros
 import torch
 import cv_bridge
-import rospkg
 import os
-
-import distinctipy as COLORS
-
 from sensor_msgs.msg import PointCloud2, CameraInfo, Image, CompressedImage
 from nav_msgs.msg import Odometry
 from grid_map_msgs.msg import GridMap
@@ -23,11 +19,15 @@ from physics_atv_visual_mapping.pointcloud_colorization.torch_color_pcl_utils im
 from physics_atv_visual_mapping.localmapping.localmapping import *
 from physics_atv_visual_mapping.utils import *
 
-class DinoMappingNode:
-    """
-    Hacky implementation of visual mapping node for debug
-    """
-    def __init__(self, config):
+class DinoMappingNode(Node):
+    def __init__(self):
+        super().__init__('visual_mapping')
+        
+        self.declare_parameter('config_fp', '')
+
+        config_fp = self.get_parameter('config_fp').get_parameter_value().string_value
+        config = yaml.safe_load(open(config_fp, 'r'))
+
         self.localmap = None
         self.pcl_msg = None
         self.odom_msg = None
@@ -44,19 +44,17 @@ class DinoMappingNode:
         self.image_pipeline = setup_image_pipeline(config)
 
         self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
         self.bridge = cv_bridge.CvBridge()
 
         self.compressed_img = config['image']['image_compressed']
         if self.compressed_img:
-            self.image_sub = rospy.Subscriber(config['image']['image_topic'], CompressedImage, self.handle_img, queue_size=1)
+            self.image_sub = self.create_subscription(CompressedImage, config['image']['image_topic'], self.handle_img, 1)
         else:
-            self.image_sub = rospy.Subscriber(config['image']['image_topic'], Image, self.handle_img, queue_size=1)
+            self.image_sub = self.create_subscription(Image, config['image']['image_topic'], self.handle_img, 1)
 
-        #self.intrinsics = torch.tensor(rospy.wait_for_message(config['image']['camera_info_topic'], CameraInfo).K, device=config['device']).reshape(3,3).float()
-
-        self.intrinsics = torch.tensor(config['intrinsics']['P'], device=config['device']).reshape(3,3).float()
+        self.intrinsics = torch.tensor(config['intrinsics']['P'], device=config['device']).reshape(3, 3).float()
         self.dino_intrinsics = None
 
         self.extrinsics = pose_to_htm(np.concatenate([
@@ -64,14 +62,14 @@ class DinoMappingNode:
             np.array(config['extrinsics']['q'])
         ], axis=-1))
 
-        self.pcl_sub = rospy.Subscriber(config['pointcloud']['topic'], PointCloud2, self.handle_pointcloud, queue_size=1)
-        self.odom_sub = rospy.Subscriber(config['odometry']['topic'], Odometry, self.handle_odom, queue_size=10)
+        self.pcl_sub = self.create_subscription(PointCloud2, config['pointcloud']['topic'], self.handle_pointcloud, 1)
+        self.odom_sub = self.create_subscription(Odometry, config['odometry']['topic'], self.handle_odom, 10)
 
-        self.pcl_pub = rospy.Publisher('/dino_pcl', PointCloud2, queue_size=1)
-        self.gridmap_pub = rospy.Publisher('/dino_gridmap', GridMap, queue_size=1)
-        self.image_pub = rospy.Publisher('/dino_image', Image, queue_size=1)
+        self.pcl_pub = self.create_publisher(PointCloud2, '/dino_pcl', 1)
+        self.gridmap_pub = self.create_publisher(GridMap, '/dino_gridmap', 1)
+        self.image_pub = self.create_publisher(Image, '/dino_image', 1)
 
-        self.rate = rospy.Rate(10)
+        self.timer = self.create_timer(0.1, self.spin)
         self.viz = config['viz']
 
     def make_layer_keys(self, layer_keys):
@@ -82,51 +80,45 @@ class DinoMappingNode:
         return out
 
     def handle_pointcloud(self, msg):
-        #temp hack
         self.pcl_msg = msg
-        self.pcl_msg.header.frame_id = 'base_link'
+        self.pcl_msg.header.frame_id = 'base_link' # TODO: parametrize
 
     def handle_odom(self, msg):
         if self.odom_frame is None:
             self.odom_frame = msg.header.frame_id
-
         self.odom_msg = msg
 
     def handle_img(self, msg):
         self.img_msg = msg
 
     def preprocess_inputs(self):
-        """
-        Return the update pcl and new metadata
-        """
         if self.pcl_msg is None:
-            rospy.logwarn_throttle(1.0, 'no pcl msg received')
+            self.get_logger().warn('no pcl msg received')
             return None
 
-        pcl_time = self.pcl_msg.header.stamp.to_sec()
+        pcl_time = self.pcl_msg.header.stamp.sec + self.pcl_msg.header.stamp.nanosec * 1e-9
         if abs(pcl_time - self.last_update_time) < 1e-3:
             return None
 
         if self.odom_msg is None:
-            rospy.logwarn_throttle(1.0, 'no odom msg received')
+            self.get_logger().warn('no odom msg received')
             return None
 
         if self.img_msg is None:
-            rospy.logwarn_throttle(1.0, 'no img msg received')
+            self.get_logger().warn('no img msg received')
             return None
 
         if self.odom_msg.child_frame_id != self.pcl_msg.header.frame_id:
-            rospy.logwarn_throttle(1.0, 'for now, need pcls in the child frame of odom (got {}, expected {})'.format(self.pcl_msg.header.frame_id, self.odom_msg.child_frame_id))
+            self.get_logger().warn('for now, need pcls in the child frame of odom')
             return None
 
-        if not self.tf_buffer.can_transform(self.odom_frame, self.pcl_msg.header.frame_id, self.pcl_msg.header.stamp):
-            rospy.logwarn_throttle(1.0, 'cant tf from {} to {} at {}'.format(self.odom_frame, self.pcl_msg.header.frame_id, self.pcl_msg.header.stamp))
+        if not self.tf_buffer.can_transform(self.odom_frame, self.pcl_msg.header.frame_id, rclpy.time.Time.from_msg(self.pcl_msg.header.stamp)):
+            self.get_logger().warn('cant tf from {} to {} at {}'.format(self.odom_frame, self.pcl_msg.header.frame_id, self.pcl_msg.header.stamp))
             return None
 
-        tf_msg = self.tf_buffer.lookup_transform(self.odom_frame, self.pcl_msg.header.frame_id, self.pcl_msg.header.stamp)
+        tf_msg = self.tf_buffer.lookup_transform(self.odom_frame, self.pcl_msg.header.frame_id, rclpy.time.Time.from_msg(self.pcl_msg.header.stamp))
 
         pcl_htm = tf_msg_to_htm(tf_msg).to(self.device)
-#        pcl = pcl_msg_to_xyzrgb(self.pcl_msg).to(self.device)
         pcl = pcl_msg_to_xyz(self.pcl_msg).to(self.device)
         pcl_odom = transform_points(pcl.clone(), pcl_htm)
 
@@ -140,33 +132,22 @@ class DinoMappingNode:
             'resolution': torch.tensor(self.base_metadata['resolution']).float().to(self.device),
         }
 
-        self.last_update_time = self.pcl_msg.header.stamp.to_sec()
+        self.last_update_time = pcl_time
 
-        #camera stuff
+        # Camera processing
         if self.compressed_img:
             img = self.bridge.compressed_imgmsg_to_cv2(self.img_msg, desired_encoding='rgb8')/255.
         else:
             img = self.bridge.imgmsg_to_cv2(self.img_msg, desired_encoding='rgb8').astype(np.float32)/255.
 
-        img = torch.tensor(img).unsqueeze(0).permute(0,3,1,2)
+        img = torch.tensor(img).unsqueeze(0).permute(0, 3, 1, 2)
 
         dino_img, dino_intrinsics = self.image_pipeline.run(img, self.intrinsics.unsqueeze(0))
-        # dino_img = img.to(self.device)
-        # dino_intrinsics = self.intrinsics.unsqueeze(0).to(self.device)
-
-        #move back to channels-last
-        dino_img = dino_img[0].permute(1,2,0)
+        dino_img = dino_img[0].permute(1, 2, 0)
         dino_intrinsics = dino_intrinsics[0]
-
-        #need to compute the transform from the odom frame to the image frame
-        #do it this way to account for pcl time sync
-        #if not self.tf_buffer.can_transform(self.pcl_msg.header.frame_id, self.img_msg.header.frame_id, self.img_msg.header.stamp):
-         #   rospy.logwarn_throttle(1.0, 'cant tf from {} to {} at {}'.format(self.pcl_msg.header.frame_id, self.img_msg.header.frame_id, self.img_msg.header.stamp))
-         #   return None
 
         I = get_intrinsics(dino_intrinsics).to(self.device)
         E = get_extrinsics(self.extrinsics).to(self.device)
-
         P = obtain_projection_matrix(I, E)
 
         pixel_coordinates = get_pixel_from_3D_source(pcl[:, :3], P)
@@ -188,7 +169,7 @@ class DinoMappingNode:
             'dino_pcl': dino_pcl,
             'pixel_projection': pixel_coordinates[ind_in_frame]
         }
-
+        
     def update_localmap(self, pcl, metadata):
         pcl_pos = pcl[:, :3]
         pcl_data = pcl[:, 3:]
@@ -204,7 +185,6 @@ class DinoMappingNode:
 
         else:
             return aggregate_localmaps(localmap_update, self.localmap, ema=self.localmap_ema)
-
     def make_gridmap_msg(self, localmap):
         """
         convert dino into gridmap msg
@@ -219,16 +199,16 @@ class DinoMappingNode:
         gridmap_data = localmap['data'].cpu().numpy()
 
         #setup metadata
-        gridmap_msg.info.header.stamp = self.img_msg.header.stamp
-        gridmap_msg.info.header.frame_id = self.odom_frame
+        print("gridmap_msg", dir(gridmap_msg.info))
+        gridmap_msg.header.stamp = self.img_msg.header.stamp
+        gridmap_msg.header.frame_id = self.odom_frame
         
-        assert(gridmap_data.shape[-1] == 9, "check if cherie's addition of height is there, if not the following layers definition is not valid")
-        gridmap_msg.layers = ['height', "VLAD_1", "VLAD_2", "VLAD_3", "VLAD_4", "VLAD_5", "VLAD_6", "VLAD_7", "VLAD_8"]
+        gridmap_msg.layers = ["VLAD_1", "VLAD_2", "VLAD_3", "VLAD_4", "VLAD_5", "VLAD_6", "VLAD_7", "VLAD_8"]
 
-        # if self.layer_keys is None:
-        #     gridmap_msg.layers = ['{}_{}'.format(self.layer_key, i) for i in range(gridmap_data.shape[-1])]
-        # else:
-        #     gridmap_msg.layers = copy.deepcopy(self.layer_keys)
+        if self.layer_keys is None:
+            gridmap_msg.layers = ['{}_{}'.format(self.layer_key, i) for i in range(gridmap_data.shape[-1])]
+        else:
+            gridmap_msg.layers = copy.deepcopy(self.layer_keys)
             
 
         gridmap_msg.info.resolution = localmap['metadata']['resolution'].item()
@@ -258,7 +238,7 @@ class DinoMappingNode:
             )
 
             #gridmap reverses the rasterization
-            gridmap_layer_msg.data = layer_data[::-1, ::-1].T.flatten()
+            gridmap_layer_msg.data = layer_data[::-1, ::-1].T.flatten().tolist()
             gridmap_msg.data.append(gridmap_layer_msg)
 
         #add dummy elevation
@@ -280,7 +260,7 @@ class DinoMappingNode:
             )
         )
 
-        gridmap_layer_msg.data = layer_data.flatten()
+        gridmap_layer_msg.data = layer_data.flatten().tolist()
         gridmap_msg.data.append(gridmap_layer_msg)
 
         """
@@ -300,10 +280,10 @@ class DinoMappingNode:
         """
 
         #TODO: figure out how to support multiple viz output types
-        gridmap_rgb = gridmap_data[..., :3]
+        gridmap_rgb = gridmap_data[..., 1:4]
         vmin = gridmap_rgb.reshape(-1, 3).min(axis=0).reshape(1,1,3)
         vmax = gridmap_rgb.reshape(-1, 3).max(axis=0).reshape(1,1,3)
-        gridmap_cs = (gridmap_rgb-vmin)/(vmax-vmin)
+        gridmap_cs = (gridmap_rgb-vmin)/(vmax-vmin)*2
         gridmap_cs = (gridmap_cs*255.).astype(np.int32)
 
         gridmap_color = gridmap_cs[..., 0] * (2**16) + gridmap_cs[..., 1] * (2**8) + gridmap_cs[..., 2]
@@ -326,7 +306,7 @@ class DinoMappingNode:
             )
         )
 
-        gridmap_layer_msg.data = gridmap_color.T[::-1, ::-1].flatten()
+        gridmap_layer_msg.data = gridmap_color.T[::-1, ::-1].flatten().tolist()
         gridmap_msg.data.append(gridmap_layer_msg)
 
         return gridmap_msg
@@ -360,51 +340,68 @@ class DinoMappingNode:
         :param header:
         :return:
         """
+        # Create the message header
         header = Header()
         header.frame_id = frame
         if timestamp is None:
-            timestamp = rospy.Time().now()
+            timestamp = self.get_clock().now().to_msg()  # ROS2 time function
         header.stamp = timestamp
+
         msg = PointCloud2()
         msg.header = header
-        if len(points.shape)==3:
+
+        # Determine point cloud dimensions (organized vs unorganized)
+        if len(points.shape) == 3:  # Organized point cloud
             msg.width = points.shape[0]
             msg.height = points.shape[1]
-        else:
+        else:  # Unorganized point cloud
             msg.width = points.shape[0]
             msg.height = 1
+
         msg.is_bigendian = False
-        # organized clouds are non-dense, since we have to use std::numeric_limits<float>::quiet_NaN()
-        # to fill all x/y/z value; un-organized clouds are dense, since we can filter out unfavored ones
-        msg.is_dense = False
+        msg.is_dense = False  # Set to False since organized clouds are non-dense
 
         if rgb_values is None:
-            msg.fields = [PointField('x', 0, PointField.FLOAT32, 1),
-                          PointField('y', 4, PointField.FLOAT32, 1),
-                          PointField('z', 8, PointField.FLOAT32, 1), ]
-            msg.point_step = 12
+            # XYZ only
+            msg.fields = [
+                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1)
+            ]
+            msg.point_step = 12  # 3 fields (x, y, z) each 4 bytes (float32)
             msg.row_step = msg.point_step * msg.width
             xyz = points.astype(np.float32)
-            msg.data = xyz.tostring()
+            msg.data = xyz.tobytes()  # Convert to bytes
         else:
-            msg.fields = [PointField('x', 0, PointField.FLOAT32, 1),
-                          PointField('y', 4, PointField.FLOAT32, 1),
-                          PointField('z', 8, PointField.FLOAT32, 1),
-                          PointField('rgb', 12, PointField.UINT32, 1),]
-            msg.point_step = 16
+            # XYZ and RGB
+            msg.fields = [
+                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                PointField(name='rgb', offset=12, datatype=PointField.UINT32, count=1)
+            ]
+            msg.point_step = 16  # 4 fields (x, y, z, rgb) with rgb as a packed 32-bit integer
             msg.row_step = msg.point_step * msg.width
 
-            xyzcolor = np.zeros( (points.shape[0], 1), \
-            dtype={
-                "names": ( "x", "y", "z", "rgba" ),
-                "formats": ( "f4", "f4", "f4", "u4" )} )
-            xyzcolor["x"] = points[:, 0].reshape((-1, 1))
-            xyzcolor["y"] = points[:, 1].reshape((-1, 1))
-            xyzcolor["z"] = points[:, 2].reshape((-1, 1))
-            color_rgba = np.zeros((points.shape[0], 4), dtype=np.uint8) + 255
-            color_rgba[:,:3] = rgb_values[:,:3]
-            xyzcolor["rgba"] = color_rgba.view('uint32')
-            msg.data = xyzcolor.tostring()
+            # Prepare the data array with XYZ and RGB
+            xyzcolor = np.zeros((points.shape[0],), dtype={
+                'names': ('x', 'y', 'z', 'rgba'),
+                'formats': ('f4', 'f4', 'f4', 'u4')
+            })
+
+            # Assign XYZ values
+            xyzcolor['x'] = points[:, 0]
+            xyzcolor['y'] = points[:, 1]
+            xyzcolor['z'] = points[:, 2]
+
+            # Prepare RGB values (packed into a 32-bit unsigned int)
+            rgb_uint32 = np.zeros(points.shape[0], dtype=np.uint32)
+            rgb_uint32 = np.left_shift(rgb_values[:, 0].astype(np.uint32), 16) | \
+                         np.left_shift(rgb_values[:, 1].astype(np.uint32), 8) | \
+                         rgb_values[:, 2].astype(np.uint32)
+            xyzcolor['rgba'] = rgb_uint32
+
+            msg.data = xyzcolor.tobytes()  # Convert to bytes
 
         return msg
 
@@ -436,106 +433,35 @@ class DinoMappingNode:
         #TODO: figure out how to support multiple viz types
         vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
         vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
-        viz_img = (((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0.5, 1.).cpu().numpy()-0.5) * 255 * 2
+        viz_img = ((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0., 1.).cpu().numpy() * 255
 
         # img_msg = self.bridge.cv2_to_imgmsg(vimg, "bgr8")
         img_msg = self.bridge.cv2_to_imgmsg(viz_img.astype(np.uint8), "rgb8")
         img_msg.header.stamp = pcl_msg.header.stamp
         self.image_pub.publish(img_msg)
-
     def spin(self):
-        import matplotlib.pyplot as plt
-        import matplotlib
-        matplotlib.rcParams['figure.raise_window'] = False
-        import time
+        self.get_logger().info('spinning...')
 
-        if self.viz:
-            fig, axs = plt.subplots(2, 2, figsize=(12, 8))
-            axs = axs.flatten()
-            plt.show(block=False)
+        res = self.preprocess_inputs()
+        if res:
+            self.get_logger().info('updating localmap...')
 
-        while not rospy.is_shutdown():
-            rospy.loginfo('spinning...')
+            self.localmap = self.update_localmap(
+                pcl=res['dino_pcl'],
+                metadata=res['metadata']
+            )
+            self.publish_messages(res)
 
-            t1 = time.time()
-            res = self.preprocess_inputs()
-            t2 = time.time()
 
-            if res:
-                rospy.loginfo('updating localmap...')
+def main(args=None):
+    rclpy.init(args=args)
 
-                t3 = time.time()
-                self.localmap = self.update_localmap(
-                    pcl=res['dino_pcl'],
-                    metadata=res['metadata']
-                )
-                t4 = time.time()
+    visual_mapping_node = DinoMappingNode()
+    rclpy.spin(visual_mapping_node)
 
-                self.publish_messages(res)
+    visual_mapping_node.destroy_node()
+    rclpy.shutdown()
 
-                t5 = time.time()
-
-                rospy.loginfo('Timing:\n\tpreproc: {:.6f}s\n\tlocalmap: {:.6f}s\n\tserialize: {:.6f}s'.format(t2-t1, t4-t3, t5-t4))
-
-                #debug viz
-                if self.viz:
-                    extent = (
-                        self.localmap['metadata']['origin'][0].item(),
-                        self.localmap['metadata']['origin'][0].item() + self.localmap['metadata']['length_x'].item(),
-                        self.localmap['metadata']['origin'][1].item(),
-                        self.localmap['metadata']['origin'][1].item() + self.localmap['metadata']['length_y'].item()
-                    )
-
-                    img_extent = (
-                        0,
-                        res['dino_image'].shape[1],
-                        0,
-                        res['dino_image'].shape[0],
-                    )
-
-                    for ax in axs:
-                        ax.cla()
-
-                    vmin = self.localmap['data'][..., :3].view(-1, 3).min(dim=0)[0].view(1,1,3)
-                    vmax = self.localmap['data'][..., :3].view(-1, 3).max(dim=0)[0].view(1,1,3)
-                    localmap_viz = (self.localmap['data'][..., :3] - vmin) / (vmax-vmin)
-
-                    dino_img_viz = ((res['dino_image'][..., :3]-vmin)/(vmax-vmin)).clip(0., 1.)
-
-                    axs[0].imshow(localmap_viz.permute(1,0,2).cpu(), extent=extent, origin='lower')
-                    axs[0].scatter(
-                        self.odom_msg.pose.pose.position.x,
-                        self.odom_msg.pose.pose.position.y,
-                        marker='x',
-                        c='r'
-                    )
-                    axs[0].set_title('Dino map')
-
-                    axs[1].imshow(res['image'], extent=img_extent)
-                    axs[1].imshow(dino_img_viz.cpu(), extent=img_extent, alpha=0.5)
-                    axs[1].set_title('Dino + FPV')
-
-                    axs[2].imshow(res['image'], extent=img_extent)
-                    axs[2].scatter(res['pixel_projection'][:, 0].cpu(), dino_img_viz.shape[0]-res['pixel_projection'][:, 1].cpu(), c='r', s=1., alpha=0.02)
-                    axs[2].set_title('pcl projection')
-
-                    dino_pt_cs = ((res['dino_pcl'][::10, 3:6]-vmin[0])/(vmax[0]-vmin[0])).clip(0., 1.)
-                    axs[3].scatter(res['dino_pcl'][::10, 0].cpu(), res['dino_pcl'][::10, 1].cpu(), c=dino_pt_cs.cpu(), s=1.)
-                    axs[3].set_xlim(extent[0], extent[1])
-                    axs[3].set_ylim(extent[2], extent[3])
-                    axs[3].set_aspect(1.)
-                    axs[3].set_title('dino PCL')
-
-                    plt.pause(1e-2)
-
-            self.rate.sleep()
 
 if __name__ == '__main__':
-    rospy.init_node('visual_mapping')
-
-    config_fp = rospy.get_param("~config_fp")
-    config = yaml.safe_load(open(config_fp, 'r'))
-
-    visual_mapping_node = DinoMappingNode(config)
-
-    visual_mapping_node.spin()
+    main()

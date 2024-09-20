@@ -1,10 +1,8 @@
+build/
+install/
+launch/log/
+physics_atv_visual_mapping/log/
+test/
+resource/
+*/__pycache__/*
 *.pyc
-*.bag
-*.mp4
-*.swp
-!models/*.pt
-**/__pycache__**/
-*wandb*
-*.vscode*
-**/eval_physics_model/**
-*.png

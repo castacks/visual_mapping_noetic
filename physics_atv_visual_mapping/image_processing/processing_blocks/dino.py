@@ -1,17 +1,16 @@
 import os
-import torch
-import rospkg
 
 from physics_atv_visual_mapping.image_processing.anyloc_utils import DinoV2ExtractFeatures
 from physics_atv_visual_mapping.image_processing.processing_blocks.base import ImageProcessingBlock
+from ament_index_python.packages import get_package_share_directory
 
 class Dinov2Block(ImageProcessingBlock):
     """
     Image processing block that runs dino on the image
     """
     def __init__(self, dino_type, dino_layer, image_insize, desc_facet, device):
-        rp = rospkg.RosPack()
-        dino_dir = os.path.join(rp.get_path("physics_atv_visual_mapping"), "models/hub")
+        package_name = "physics_atv_visual_mapping"
+        dino_dir = os.path.join(get_package_share_directory(package_name), "models/hub")
 
         self.dino = DinoV2ExtractFeatures(dino_dir,
             dino_model=dino_type,

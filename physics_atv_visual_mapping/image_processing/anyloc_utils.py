@@ -213,6 +213,7 @@ class VLAD:
                 - exists but doesn't contain the cluster centers
                 - no caching is set in constructor
         """
+        print("self.cache_dir", self.cache_dir)
         if self.cache_dir is None:
             return False
         if not os.path.exists(self.cache_dir):
