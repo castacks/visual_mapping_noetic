@@ -81,7 +81,7 @@ class DinoMappingNode(Node):
 
     def handle_pointcloud(self, msg):
         self.pcl_msg = msg
-        self.pcl_msg.header.frame_id = 'base_link' # TODO: parametrize
+        self.pcl_msg.header.frame_id = 'zed_camera_link' # TODO: parametrize
 
     def handle_odom(self, msg):
         if self.odom_frame is None:
@@ -143,6 +143,8 @@ class DinoMappingNode(Node):
         img = torch.tensor(img).unsqueeze(0).permute(0, 3, 1, 2)
 
         dino_img, dino_intrinsics = self.image_pipeline.run(img, self.intrinsics.unsqueeze(0))
+        # dino_img = img.to(self.device)
+        # dino_intrinsics = self.intrinsics.unsqueeze(0).to(self.device)
         dino_img = dino_img[0].permute(1, 2, 0)
         dino_intrinsics = dino_intrinsics[0]
 

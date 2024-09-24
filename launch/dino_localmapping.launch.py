@@ -32,6 +32,23 @@ def generate_launch_description():
             output='screen',
             parameters=[{'config_fp': config_fp}]
         ),
+        # Static Transform Publisher node
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='static_transform_publisher',
+            output='screen',
+            arguments=['0', '0', '0', '0', '0', '0', '1', 'base_link', 'zed_camera_link'],
+        ),
+
+        # RViz node
+        Node(
+            package='rviz2',
+            executable='rviz2',
+            name='rviz2',
+            output='screen',
+            arguments=['-d', '/wheelsafe_ws/src/wheelsafe_meta/rviz/wheelie.rviz']
+        )
 
         # Uncomment this node if needed in the future
         # Node(
