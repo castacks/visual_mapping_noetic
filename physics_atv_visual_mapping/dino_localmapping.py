@@ -69,7 +69,7 @@ class DinoMappingNode(Node):
         self.gridmap_pub = self.create_publisher(GridMap, '/dino_gridmap', 1)
         self.image_pub = self.create_publisher(Image, '/dino_image', 1)
 
-        self.timer = self.create_timer(0.1, self.spin)
+        self.timer = self.create_timer(0.2, self.spin)
         self.viz = config['viz']
 
     def make_layer_keys(self, layer_keys):
@@ -81,7 +81,8 @@ class DinoMappingNode(Node):
 
     def handle_pointcloud(self, msg):
         self.pcl_msg = msg
-        self.pcl_msg.header.frame_id = 'zed_camera_link' # TODO: parametrize
+        # self.pcl_msg.header.frame_id = 'zed_camera_link' # TODO: parametrize
+        self.pcl_msg.header.frame_id = 'base_link'
 
     def handle_odom(self, msg):
         if self.odom_frame is None:
@@ -117,6 +118,7 @@ class DinoMappingNode(Node):
             return None
 
         tf_msg = self.tf_buffer.lookup_transform(self.odom_frame, self.pcl_msg.header.frame_id, rclpy.time.Time.from_msg(self.pcl_msg.header.stamp))
+        
 
         pcl_htm = tf_msg_to_htm(tf_msg).to(self.device)
         pcl = pcl_msg_to_xyz(self.pcl_msg).to(self.device)
@@ -131,7 +133,6 @@ class DinoMappingNode(Node):
             'length_y': torch.tensor(self.base_metadata['length_y']).float().to(self.device),
             'resolution': torch.tensor(self.base_metadata['resolution']).float().to(self.device),
         }
-
         self.last_update_time = pcl_time
 
         # Camera processing
@@ -162,7 +163,7 @@ class DinoMappingNode(Node):
 
         dino_features = dino_img[pixels_in_frame[:, 1], pixels_in_frame[:, 0]]
         dino_pcl = torch.cat([pcl_odom[ind_in_frame][:, :3], dino_features], dim=-1)
-
+        
         return {
             'pcl': pcl_odom,
             'metadata': _metadata,
@@ -181,7 +182,6 @@ class DinoMappingNode(Node):
             'known': known_mask,
             'metadata': metadata_out
         }
-
         if self.localmap is None:
             return localmap_update
 
@@ -220,7 +220,20 @@ class DinoMappingNode(Node):
         gridmap_msg.info.pose.position.y = localmap['metadata']['origin'][1].item() + 0.5*gridmap_msg.info.length_y
         gridmap_msg.info.pose.position.z = self.odom_msg.pose.pose.position.z
         gridmap_msg.info.pose.orientation.w = 1.
+        # transposed_layer_data = np.transpose(gridmap_data, (0, 2,1))
+        # flipped_layer_data = np.flip(np.flip(transposed_layer_data, axis=1), axis=2)
+        
+        
+        # gridmap_data has the shape (rows, cols, layers)
+        # Step 1: Flip the 2D grid layers in both directions (reverse both axes)
+        flipped_data = np.flip(gridmap_data, axis=(0, 1))  # Flips along both axes
 
+        # Step 2: Transpose the first two dimensions (x, y) for each layer
+        transposed_data = np.transpose(flipped_data, axes=(1, 0, 2))  # Transpose rows and cols
+
+        # Step 3: Flatten each 2D layer, maintaining the layers' structure (flattening across x, y)
+        flattened_data = transposed_data.reshape(-1, gridmap_data.shape[-1])
+        accum_time = 0
         for i in range(gridmap_data.shape[-1]):
             layer_data = gridmap_data[..., i]
             gridmap_layer_msg = Float32MultiArray()
@@ -240,9 +253,14 @@ class DinoMappingNode(Node):
             )
 
             #gridmap reverses the rasterization
-            gridmap_layer_msg.data = layer_data[::-1, ::-1].T.flatten().tolist()
-            gridmap_msg.data.append(gridmap_layer_msg)
+            start_time = time.time()
+            gridmap_layer_msg.data = flattened_data[:, i].tolist()
+            end_time = time.time()
+            accum_time += end_time - start_time
 
+            # gridmap_layer_msg.data = flipped_layer_data[i].flatten().tolist()
+            gridmap_msg.data.append(gridmap_layer_msg)
+        self.get_logger().info('time to flatten layer {}: {}'.format(i, accum_time))
         #add dummy elevation
         gridmap_msg.layers.append('elevation')
         layer_data = np.zeros_like(gridmap_data[...,0]) + self.odom_msg.pose.pose.position.z - 1.73
@@ -317,19 +335,49 @@ class DinoMappingNode(Node):
         """
         Convert dino pcl into message
         """
+        start_time = time.time()
         pcl_pos = pcl[:, :3].cpu().numpy()
 
         pcl_cs = pcl[:, [5,4,3]]
         vmin = pcl_cs.min(dim=0)[0].view(1,3)
         vmax = pcl_cs.max(dim=0)[0].view(1,3)
         pcl_cs =((pcl_cs - vmin) / (vmax - vmin)).cpu().numpy()
+        
+        after_init_time = time.time()
 
-        msg = self.xyz_array_to_point_cloud_msg(
-            points=pcl_pos,
-            frame=self.odom_frame,
-            timestamp=self.pcl_msg.header.stamp,
-            rgb_values=(pcl_cs*255.).astype(np.uint8)
-        )
+        # msg = self.xyz_array_to_point_cloud_msg(
+        #     points=pcl_pos,
+        #     frame=self.odom_frame,
+        #     timestamp=self.pcl_msg.header.stamp,
+        #     rgb_values=(pcl_cs*255.).astype(np.uint8)
+        # )
+        
+        points = pcl_pos 
+        rgb_values = (pcl_cs*255.).astype(np.uint8)
+        # Prepare the data array with XYZ and RGB
+        xyzcolor = np.zeros(points.shape[0], dtype=[
+            ('x', np.float32),
+            ('y', np.float32),
+            ('z', np.float32), 
+            ('rgb', np.float32)
+        ])
+
+        # Assign XYZ values
+        xyzcolor['x'] = points[:, 0]
+        xyzcolor['y'] = points[:, 1]
+        xyzcolor['z'] = points[:, 2]
+        
+        color = np.zeros(points.shape[0], dtype=[('r', np.uint8), ('g', np.uint8), ('b', np.uint8)])
+        color['r'] = rgb_values[:, 0]
+        color['g'] = rgb_values[:, 1]
+        color['b'] = rgb_values[:, 2]
+        xyzcolor['rgb'] = ros2_numpy.point_cloud2.merge_rgb_fields(color)
+        
+        
+        msg = ros2_numpy.msgify(PointCloud2, xyzcolor)
+        msg.header.frame_id = self.odom_frame
+        msg.header.stamp = self.pcl_msg.header.stamp
+        self.get_logger().info('pcl total time: {}'.format(time.time()-start_time))
 
         return msg
 
@@ -412,11 +460,7 @@ class DinoMappingNode(Node):
         Publish the dino pcl and dino map
         """
         gridmap_msg = self.make_gridmap_msg(self.localmap)
-
-        t1 = time.time()
         self.gridmap_pub.publish(gridmap_msg)
-        print(time.time() - t1)
-
         pcl_msg = self.make_pcl_msg(res['dino_pcl'])
         self.pcl_pub.publish(pcl_msg)
 
@@ -444,15 +488,24 @@ class DinoMappingNode(Node):
     def spin(self):
         self.get_logger().info('spinning...')
 
+        start_time = time.time()
         res = self.preprocess_inputs()
+        after_preprocess_time = time.time()
         if res:
+            
             self.get_logger().info('updating localmap...')
 
             self.localmap = self.update_localmap(
                 pcl=res['dino_pcl'],
                 metadata=res['metadata']
             )
+            after_update_time = time.time()
             self.publish_messages(res)
+            after_publish_time = time.time()
+            self.get_logger().info('preprocess time: {}'.format(after_preprocess_time-start_time))
+            self.get_logger().info('update time: {}'.format(after_update_time-start_time))
+            self.get_logger().info('publish time: {}'.format(after_publish_time-after_update_time))
+            self.get_logger().info('total time: {}'.format(time.time()-start_time))
 
 
 def main(args=None):

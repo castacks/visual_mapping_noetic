@@ -1,13 +1,13 @@
 image:
-    image_topic: /zed/zed_node/rgb/image_rect_color
-    camera_info_topic: /zed/zed_node/rgb/camera_info
+    image_topic: /zedx/zed_node/rgb/image_rect_color
+    camera_info_topic: /zedx/zed_node/rgb/camera_info
     image_compressed: False
 
 pointcloud:
-    topic: /zed/zed_node/point_cloud/cloud_registered
+    topic: /zedx/zed_node/point_cloud/cloud_registered
 
 odometry:
-    topic: /zed/zed_node/odom
+    topic: /zedx/zed_node/odom
 
 gridmap:
     topic: local_gridmap
@@ -103,9 +103,9 @@ localmapping:
         # resolution: 0.5
 
        origin: [-8., -8.]
-       length_x: 16.
-       length_y: 16.
-       resolution: 0.05
+       length_x: 16.0
+       length_y: 16.0
+       resolution: 0.25
 
        # origin: [-20., -20.]
        # length_x: 40.

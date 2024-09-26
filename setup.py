@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'dino_localmapping = physics_atv_visual_mapping.dino_localmapping:main',
+            'dino_cost = physics_atv_visual_mapping.dino_cost:main',
         ],
     },
 )

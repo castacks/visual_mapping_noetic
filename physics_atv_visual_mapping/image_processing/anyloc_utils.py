@@ -50,13 +50,13 @@ class DinoV2ExtractFeatures:
             - device:   PyTorch device to use
         """
         self.vit_type: str = dino_model
+        # self.dino_model: nn.Module = torch.hub.load(
+        #         'facebookresearch/dinov2', dino_model)
+        # print(dino_dir,'________________________________________________________')
+        # #torch.hub.set_dir(dino_dir)
         self.dino_model: nn.Module = torch.hub.load(
-                'facebookresearch/dinov2', dino_model)
-        print(dino_dir,'________________________________________________________')
-        #torch.hub.set_dir(dino_dir)
-        #self.dino_model: nn.Module = torch.hub.load(
-        #            dino_dir + '/facebookresearch_dinov2_main',dino_model,source='local')
-        #        #'/home/matthew/.cache/torch/hub/facebookresearch_dinov2_main', dino_model,source='local')
+                #    dino_dir + '/facebookresearch_dinov2_main',dino_model,source='local')
+               '/wheelsafe_ws/facebookresearch_dinov2_main', dino_model,source='local')
 
         self.device = torch.device(device)
         self.dino_model.blocks = nn.Sequential(*list(self.dino_model.blocks.children())[:-1])

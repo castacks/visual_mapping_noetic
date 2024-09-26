@@ -43,12 +43,12 @@ def pcl_msg_to_xyz(pcl_msg):
     pcl_np = ros2_numpy.numpify(pcl_msg)
     # print(pcl_np.keys())
     # print(pcl_np['xyz'].shape)
-    # xyz = np.stack([
-    #     pcl_np['x'].flatten(),
-    #     pcl_np['y'].flatten(),
-    #     pcl_np['z'].flatten()
-    # ], axis=-1)
-    xyz = pcl_np['xyz']
+    xyz = np.stack([
+        pcl_np['x'].flatten(),
+        pcl_np['y'].flatten(),
+        pcl_np['z'].flatten()
+    ], axis=-1)
+    # xyz = pcl_np['xyz']
 
     return torch.from_numpy(xyz).float()
 
