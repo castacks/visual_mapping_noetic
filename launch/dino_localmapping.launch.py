@@ -7,6 +7,7 @@ from launch_ros.substitutions import FindPackageShare
 def generate_launch_description():
     # Declare the argument for the config file
     visual_mapping_config = LaunchConfiguration('visual_mapping_config')
+    using_zedros1_bag = True 
 
     # Use PathJoinSubstitution to dynamically join the package path and the config file
     config_fp = PathJoinSubstitution([
@@ -15,8 +16,8 @@ def generate_launch_description():
         'ros',
         visual_mapping_config
     ])
-
-    return LaunchDescription([
+    
+    nodes = [
         # Declare the use_sim_time argument
         DeclareLaunchArgument(
             'use_sim_time',
@@ -54,16 +55,6 @@ def generate_launch_description():
             parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
             arguments=['0', '0', '0', '0', '0', '0', '1', 'base_link', 'zed_camera_link'],
         ),
-        
-        # Static Transform Publisher node (ROS1 Zed Driver)
-        Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='static_transform_publisher',
-            output='screen',
-            arguments=['0', '0', '0', '0', '0', '0', '1', 'base_link', 'zedx_left_camera_frame'],
-            parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
-        ),
 
         # RViz node
         Node(
@@ -74,4 +65,37 @@ def generate_launch_description():
             parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
             arguments=['-d', '/wheelsafe_ws/src/wheelsafe_meta/rviz/wheelie.rviz']
         ),
-    ])
+    ]
+    
+    
+    if using_zedros1_bag: # Launch descriptions specific when running bags that use Zed Ros 1 driver
+        nodes.append(# Static Transform Publisher node (Hack to restamp map and odom, since odom frame is wrong is old bags)
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='static_transform_publisher',
+            output='screen',
+            parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+            arguments=['0', '0', '0', '0', '0', '0', '1', 'map', 'odom'],
+        ))
+
+        # Transform Publisher for base_link given odometry
+        nodes.append(Node(
+            package='physics_atv_visual_mapping',
+            executable='odom_to_tf',
+            name='odom_to_tf',
+            output='screen',
+            parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+        ))
+        
+        # Static Transform Publisher node (ROS1 Zed Driver)
+        nodes.append(Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='static_transform_publisher',
+            output='screen',
+            arguments=['0', '0', '0', '0', '0', '0', '1', 'base_link', 'zedx_left_camera_frame'],
+            parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}]))
+        
+
+    return LaunchDescription(nodes)

@@ -41,25 +41,21 @@ def tf_msg_to_htm(tf_msg):
 
 def pcl_msg_to_xyz(pcl_msg):
     pcl_np = ros2_numpy.numpify(pcl_msg)
-    # print(pcl_np.keys())
-    # print(pcl_np['xyz'].shape)
     xyz = np.stack([
         pcl_np['x'].flatten(),
         pcl_np['y'].flatten(),
         pcl_np['z'].flatten()
     ], axis=-1)
-    # xyz = pcl_np['xyz']
 
     return torch.from_numpy(xyz).float()
 
 def pcl_msg_to_xyzrgb(pcl_msg):
     pcl_np = ros2_numpy.numpify(pcl_msg)
-    # xyz = np.stack([
-    #     pcl_np['x'],
-    #     pcl_np['y'],
-    #     pcl_np['z']
-    # ], axis=-1)
-    xyz = pcl_np['xyz']
+    xyz = np.stack([
+        pcl_np['x'],
+        pcl_np['y'],
+        pcl_np['z']
+    ], axis=-1)
 
     colors_raw = pcl_np['rgb']
     red = ((colors_raw & 0x00FF0000)>>16)

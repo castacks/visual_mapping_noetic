@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'dino_localmapping = physics_atv_visual_mapping.dino_localmapping:main',
             'dino_cost = physics_atv_visual_mapping.dino_cost:main',
+            'odom_to_tf = physics_atv_visual_mapping.odom_to_tf:main'
         ],
     },
 )
