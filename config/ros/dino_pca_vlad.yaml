@@ -15,6 +15,7 @@ gridmap:
 
 intrinsics:
     K: [455.7750, 0., 497.1180, 0., 456.3191, 251.8580, 0., 0., 1.]
+    P: [455.7750, 0., 497.1180, 0., 456.3191, 251.8580, 0., 0., 1.]
 
 extrinsics:
 #    p: [0.0, 0.0, -0.1274]
@@ -36,9 +37,9 @@ image_processing:
     - 
         type: pca_vlad
         args:
-            pca_fp: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/pca/pca_vitb10_value.pt
+            pca_fp: physics_atv_visual_mapping/data/pca/pca_vitb10_value.pt
             vlad_n_clusters : 8
-            vlad_cache_dir :  /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/dino_clusters/8_clusters_364x686_
+            vlad_cache_dir :  physics_atv_visual_mapping/data/dino_clusters/8_clusters_364x686_
 
 localmapping:
     layer_keys:

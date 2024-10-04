@@ -8,9 +8,8 @@ class Dinov2Block(ImageProcessingBlock):
     """
     Image processing block that runs dino on the image
     """
-    def __init__(self, dino_type, dino_layer, image_insize, desc_facet, device):
-        package_name = "physics_atv_visual_mapping"
-        dino_dir = os.path.join(get_package_share_directory(package_name), "models/hub")
+    def __init__(self, dino_type, dino_layer, image_insize, desc_facet, device, dino_dir='dinov2/hub'):
+        dino_dir = os.path.join(os.environ['TARTANDRIVER_MODELS_DIR'], dino_dir)
 
         self.dino = DinoV2ExtractFeatures(dino_dir,
             dino_model=dino_type,

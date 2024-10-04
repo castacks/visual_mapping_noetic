@@ -82,7 +82,7 @@ class DinoMappingNode(Node):
     def handle_pointcloud(self, msg):
         self.pcl_msg = msg
         # self.pcl_msg.header.frame_id = 'zed_camera_link' # TODO: parametrize
-        self.pcl_msg.header.frame_id = 'base_link'
+        self.pcl_msg.header.frame_id = 'vehicle'
 
     def handle_odom(self, msg):
         if self.odom_frame is None:
@@ -187,6 +187,7 @@ class DinoMappingNode(Node):
 
         else:
             return aggregate_localmaps(localmap_update, self.localmap, ema=self.localmap_ema)
+        
     def make_gridmap_msg(self, localmap):
         """
         convert dino into gridmap msg

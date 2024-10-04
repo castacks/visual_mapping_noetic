@@ -1,3 +1,4 @@
+import os
 import torch
 
 from physics_atv_visual_mapping.image_processing.processing_blocks.base import ImageProcessingBlock
@@ -7,7 +8,8 @@ class PCABlock(ImageProcessingBlock):
     Block that applies a precomputed PCA to the image
     """
     def __init__(self, fp, device):
-        self.pca = {k:v.to(device) for k,v in torch.load(fp).items()}
+        full_fp = os.path.join(os.environ['TARTANDRIVER_MODELS_DIR'], fp)
+        self.pca = {k:v.to(device) for k,v in torch.load(full_fp, weights_only=False).items()}
 
     def run(self, image, intrinsics, image_orig):
         _pmean = self.pca['mean'].view(1, 1, -1)

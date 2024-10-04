@@ -12,6 +12,7 @@ class SAMBlock(ImageProcessingBlock):
     Image processing block that runs Segment Anything on the image
     """
     def __init__(self, sam_type, sam_path, image_insize, device):
+        sam_path = os.path.join(os,environ['TARTANDRIVER_MODELS_DIR'], sam_path)
         self.sam = sam_model_registry[sam_type](checkpoint=sam_path)
         self.predictor = SamPredictor(self.sam)
 
