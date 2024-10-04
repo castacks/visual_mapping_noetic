@@ -15,6 +15,7 @@ gridmap:
 
 intrinsics:
     K: [455.7750, 0., 497.1180, 0., 456.3191, 251.8580, 0., 0., 1.]
+    P: [455.7750, 0., 497.1180, 0., 456.3191, 251.8580, 0., 0., 1.]
 
 extrinsics:
 #    p: [0.0, 0.0, -0.1274]
@@ -28,13 +29,13 @@ image_processing:
         type: sam
         args:
             image_insize: [686, 364] #this should be the size of the input images
-            sam_path: /home/physics_atv/workspace/segment_anything_models/sam_vit_b_01ec64.pth
+            sam_path: segment_anything_models/sam_vit_b_01ec64.pth
             sam_type: vit_b #one of [vit_b]
 
     - 
         type: pca
         args:
-            fp: /home/physics_atv/physics_atv_ws/src/perception/physics_atv_visual_mapping/data/pca/sam_vitb.pt
+            fp: physics_atv_visual_mapping/pca/sam_vitb.pt
 
 localmapping:
     layer_key: dino

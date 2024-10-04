@@ -26,7 +26,7 @@ def generate_launch_description():
         # Declare the launch argument with a default value
         DeclareLaunchArgument(
             'visual_mapping_config',
-            default_value='dino_vlad.yaml',
+            default_value='sam_pca.yaml',
             description='Config file for visual mapping'
         ),
         # Node definition
