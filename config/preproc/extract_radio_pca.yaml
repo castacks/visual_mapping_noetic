@@ -11,11 +11,11 @@ odometry:
 
 image_processing:
     -
-        type: sam
+        type: radio
         args:
-            image_insize: [686, 364] #this should be the size of the input images
-            sam_path: segment_anything_models/sam_vit_b_01ec64.pth
-            sam_type: vit_b #one of [vit_b]
+            radio_type: radio_v2.5-b # radio_v2 e-radio_v2
+            #image_insize: [640, 512]  # Original Image Size must be divisible by 16
+            image_insize: [672, 352]  # Original Image Size must be divisible by 16
 
 pca_nfeats: 64 #reduce output feats to this dim
 #pca_nfeats: 128 #reduce output feats to this dim
