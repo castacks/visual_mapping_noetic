@@ -24,9 +24,13 @@ class DinoMappingNode(Node):
         super().__init__('visual_mapping')
         
         self.declare_parameter('config_fp', '')
+        self.declare_parameter('models_dir', '')
+
+        self.get_logger().info('Looking for models in {}'.format(self.get_parameter('models_dir').get_parameter_value().string_value))
 
         config_fp = self.get_parameter('config_fp').get_parameter_value().string_value
         config = yaml.safe_load(open(config_fp, 'r'))
+        config['models_dir'] = self.get_parameter('models_dir').get_parameter_value().string_value
 
         self.localmap = None
         self.pcl_msg = None

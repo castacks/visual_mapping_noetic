@@ -7,8 +7,8 @@ class PCABlock(ImageProcessingBlock):
     """
     Block that applies a precomputed PCA to the image
     """
-    def __init__(self, fp, device):
-        full_fp = os.path.join(os.environ['TARTANDRIVER_MODELS_DIR'], fp)
+    def __init__(self, fp, models_dir, device):
+        full_fp = os.path.join(models_dir, fp)
         self.pca = {k:v.to(device) for k,v in torch.load(full_fp, weights_only=False).items()}
 
     def run(self, image, intrinsics, image_orig):

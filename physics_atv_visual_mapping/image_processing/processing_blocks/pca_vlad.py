@@ -9,12 +9,9 @@ class PCAVLADBlock(ImageProcessingBlock):
     """
     Block that does both PCA and VLAD processing
     """
-    def __init__(self, pca_fp, vlad_n_clusters, vlad_cache_dir, device):
-        pca_fp = os.path.join(os.environ['TARTANDRIVER_MODELS_DIR'], pca_fp)
-        vlad_cache_dir = os.path.join(os.environ['TARTANDRIVER_MODELS_DIR'], vlad_cache_dir)
-
-        self.pca_block = PCABlock(fp=pca_fp, device=device)
-        self.vlad_block = VLADBlock(n_clusters=vlad_n_clusters, cache_dir=vlad_cache_dir, device=device)
+    def __init__(self, pca_fp, vlad_n_clusters, vlad_cache_dir, models_dir, device):
+        self.pca_block = PCABlock(fp=pca_fp, models_dir=models_dir, device=device)
+        self.vlad_block = VLADBlock(n_clusters=vlad_n_clusters, cache_dir=vlad_cache_dir, models_dir=models_dir, device=device)
         self.device = device
 
     def run(self, image, intrinsics, image_orig):

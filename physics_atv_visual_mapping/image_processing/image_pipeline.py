@@ -7,7 +7,6 @@ from physics_atv_visual_mapping.image_processing.processing_blocks.pca import PC
 from physics_atv_visual_mapping.image_processing.processing_blocks.vlad import VLADBlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.pca_vlad import PCAVLADBlock
 # from physics_atv_visual_mapping.image_processing.processing_blocks.ganav import GANavBlock
-from physics_atv_visual_mapping.image_processing.processing_blocks.featup import FeatUpBlock
 
 from physics_atv_visual_mapping.utils import normalize_dino
 import os 
@@ -20,19 +19,17 @@ def setup_image_pipeline(config):
         btype = block_config['type']
         block_config['args']['device'] = config['device']
         if btype == 'dino':
-            block = Dinov2Block(**block_config['args'])
+            block = Dinov2Block(**block_config['args'], models_dir=config['models_dir'])
         elif btype == 'sam':
-            block = SAMBlock(**block_config['args'])
+            block = SAMBlock(**block_config['args'], models_dir=config['models_dir'])
         elif btype == 'pca':
-            block = PCABlock(**block_config['args'])
+            block = PCABlock(**block_config['args'], models_dir=config['models_dir'])
         elif btype == 'vlad':
-            block = VLADBlock(**block_config['args'])
+            block = VLADBlock(**block_config['args'], models_dir=config['models_dir'])
         elif btype == 'pca_vlad':
-            block = PCAVLADBlock(**block_config['args'])
+            block = PCAVLADBlock(**block_config['args'], models_dir=config['models_dir'])
         # elif btype == 'ganav':
         #     block = GANavBlock(**block_config['args'])
-        elif btype == 'featup':
-            block = FeatUpBlock(**block_config['args'])
         else:
             print('Unsupported visual block type {}'.format(btype))
             exit(1)

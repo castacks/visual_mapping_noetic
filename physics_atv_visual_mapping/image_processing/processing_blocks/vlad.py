@@ -6,8 +6,8 @@ from physics_atv_visual_mapping.image_processing.anyloc_utils import VLAD
 from physics_atv_visual_mapping.image_processing.processing_blocks.base import ImageProcessingBlock
 
 class VLADBlock(ImageProcessingBlock):
-    def __init__(self, n_clusters, cache_dir, desc_dim=None, device='cuda'):
-        cache_dir = os.path.join(os.environ['TARTANDRIVER_MODELS_DIR'], cache_dir)
+    def __init__(self, n_clusters, cache_dir, models_dir, desc_dim=None, device='cuda'):
+        cache_dir = os.path.join(models_dir, cache_dir)
         self.vlad = VLAD(n_clusters, desc_dim=desc_dim, cache_dir=cache_dir)
         self.vlad.fit(None)
 

@@ -1,3 +1,5 @@
+import yaml
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -36,7 +38,9 @@ def generate_launch_description():
             name='visual_localmapping',
             output='screen',
             parameters=[{'config_fp': config_fp}, 
-                        {'use_sim_time': LaunchConfiguration('use_sim_time')}],
+                        {'use_sim_time': LaunchConfiguration('use_sim_time')},
+                        {'models_dir': LaunchConfiguration('models_dir')}
+                        ],
         ),
     ]
 
