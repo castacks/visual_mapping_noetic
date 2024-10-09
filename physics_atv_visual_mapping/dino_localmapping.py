@@ -10,10 +10,12 @@ import tf2_ros
 import torch
 import cv_bridge
 import os
-from sensor_msgs.msg import PointCloud2, CameraInfo, Image, CompressedImage
+
+from std_msgs.msg import Float32MultiArray, MultiArrayDimension
+from sensor_msgs.msg import PointCloud2, Image, CompressedImage
 from nav_msgs.msg import Odometry
 from grid_map_msgs.msg import GridMap
-from std_msgs.msg import Float32MultiArray, MultiArrayDimension, Float32
+from perception_interfaces.msg import FeatureVoxelGrid
 
 from physics_atv_visual_mapping.image_processing.image_pipeline import (
     setup_image_pipeline,
@@ -118,7 +120,7 @@ class DinoMappingNode(Node):
         if self.mapper_type == "bev":
             self.gridmap_pub = self.create_publisher(GridMap, "/dino_gridmap", 1)
         else:
-            self.voxel_pub = self.create_publisher(PointCloud2, "/dino_voxels", 1)
+            self.voxel_pub = self.create_publisher(FeatureVoxelGrid, "/dino_voxels", 1)
             self.voxel_viz_pub = self.create_publisher(
                 PointCloud2, "/dino_voxels_viz", 1
             )
@@ -290,11 +292,57 @@ class DinoMappingNode(Node):
             "pixel_projection": pixel_coordinates[ind_in_frame],
         }
 
-    def make_voxel_msg(self):
+    def make_voxel_msg(self, voxel_grid):
         self.get_logger().warn("TODO publish voxel msg")
-        return PointCloud2()
+        msg = FeatureVoxelGrid()
+        msg.header.stamp = self.pcl_msg.header.stamp
+        msg.header.frame_id = self.odom_frame
 
-    def make_gridmap_msg(self):
+        msg.metadata.origin.x = voxel_grid.metadata.origin[0].item()
+        msg.metadata.origin.y = voxel_grid.metadata.origin[1].item()
+        msg.metadata.origin.z = voxel_grid.metadata.origin[2].item()
+
+        msg.metadata.length.x = voxel_grid.metadata.length[0].item()
+        msg.metadata.length.y = voxel_grid.metadata.length[1].item()
+        msg.metadata.length.z = voxel_grid.metadata.length[2].item()
+
+        msg.metadata.resolution.x = voxel_grid.metadata.resolution[0].item()
+        msg.metadata.resolution.y = voxel_grid.metadata.resolution[1].item()
+        msg.metadata.resolution.z = voxel_grid.metadata.resolution[2].item()
+
+        msg.num_voxels = voxel_grid.features.shape[0]
+        msg.num_features = voxel_grid.features.shape[1]
+
+        if self.layer_keys is None:
+            msg.feature_keys = [
+                "{}_{}".format(self.layer_key, i) for i in range(voxel_grid.features.shape[1])
+            ]
+        else:
+            msg.feature_keys = copy.deepcopy(self.layer_keys)
+
+        msg.indices = voxel_grid.indices.tolist()
+
+        feature_msg = Float32MultiArray()
+        feature_msg.layout.dim.append(
+            MultiArrayDimension(
+                label="column_index",
+                size=voxel_grid.features.shape[0],
+                stride=voxel_grid.features.shape[0],
+            )
+        )
+        feature_msg.layout.dim.append(
+            MultiArrayDimension(
+                label="row_index",
+                size=voxel_grid.features.shape[0],
+                stride=voxel_grid.features.shape[0] * voxel_grid.features.shape[1],
+            )
+        )
+
+        feature_msg.data = voxel_grid.features.flatten().tolist()
+
+        return msg
+
+    def make_gridmap_msg(self, vmin=None, vmax=None):
         """
         convert dino into gridmap msg
 
@@ -400,8 +448,13 @@ class DinoMappingNode(Node):
 
         # TODO: figure out how to support multiple viz output types
         gridmap_rgb = gridmap_data[..., :3]
-        vmin = gridmap_rgb.reshape(-1, 3).min(axis=0).reshape(1, 1, 3)
-        vmax = gridmap_rgb.reshape(-1, 3).max(axis=0).reshape(1, 1, 3)
+        if vmin is None or vmax is None:
+            vmin = vmin.cpu().numpy().reshape(1, 1, 3)
+            vmax = vmax.cpu().numpy().reshape(1, 1, 3)
+        else:
+            vmin = gridmap_rgb.reshape(-1, 3).min(axis=0).reshape(1, 1, 3)
+            vmax = gridmap_rgb.reshape(-1, 3).max(axis=0).reshape(1, 1, 3)
+
         gridmap_cs = ((gridmap_rgb - vmin) / (vmax - vmin)).clip(0.0, 1.0)
         gridmap_cs = (gridmap_cs * 255.0).astype(np.int32)
 
@@ -568,25 +621,40 @@ class DinoMappingNode(Node):
             msg.data = xyzcolor.tobytes()  # Convert to bytes
 
         return msg
+    
+    def make_img_msg(self, dino_img, vmin=None, vmax=None):
+        if vmin is None or vmax is None:
+            viz_img = normalize_dino(dino_img[..., :3])
+        else:
+            vmin = vmin.view(1, 1, 3)
+            vmax = vmax.view(1, 1, 3)
+            viz_img = (dino_img[..., :3] - vmin) / (vmax-vmin)
+            viz_img = viz_img.clip(0., 1.)
+
+        viz_img = viz_img.cpu().numpy() * 255
+        img_msg = self.bridge.cv2_to_imgmsg(viz_img.astype(np.uint8), "rgb8")
+        img_msg.header.stamp = self.img_msg.header.stamp
+        return img_msg
 
     def publish_messages(self, res):
         """
         Publish the dino pcl and dino map
         """
-        pcl_msg = self.make_pcl_msg(res["dino_pcl"])
-        self.pcl_pub.publish(pcl_msg)
-
-        viz_img, (vmin, vmax) = normalize_dino(
-            res["dino_image"][..., :3], return_min_max=True
-        )
-        viz_img = viz_img.cpu().numpy() * 255
-        img_msg = self.bridge.cv2_to_imgmsg(viz_img.astype(np.uint8), "rgb8")
-        img_msg.header.stamp = self.img_msg.header.stamp
-        self.image_pub.publish(img_msg)
-
         if self.mapper_type == "bev":
-            gridmap_msg = self.make_gridmap_msg()
+            #use the aggregated embeddings for min/max to keep consistency across image/pcl/map
+            bev_viz_data = self.localmapper.bev_grid.data[..., :3].view(-1, 3)
+            vmin = bev_viz_data.min(dim=0)[0]
+            vmax = bev_viz_data.max(dim=0)[0]
+
+            gridmap_msg = self.make_gridmap_msg(vmin=vmin, vmax=vmax)
             self.gridmap_pub.publish(gridmap_msg)
+
+            pcl_msg = self.make_pcl_msg(res["dino_pcl"], vmin=vmin, vmax=vmax)
+            self.pcl_pub.publish(pcl_msg)
+
+            img_msg = self.make_img_msg(res["dino_image"], vmin=vmin, vmax=vmax)
+            self.image_pub.publish(img_msg)
+
         elif self.mapper_type == "voxel":
             pts = self.localmapper.voxel_grid.grid_indices_to_pts(
                 self.localmapper.voxel_grid.raster_indices_to_grid_indices(
@@ -594,10 +662,22 @@ class DinoMappingNode(Node):
                 )
             )
             colors = self.localmapper.voxel_grid.features[:, :3]
-            voxel_msg = self.make_pcl_msg(
+            vmin = colors.min(dim=0)[0]
+            vmax = colors.max(dim=0)[0]
+
+            voxel_viz_msg = self.make_pcl_msg(
                 torch.cat([pts, colors], axis=-1), vmin=vmin, vmax=vmax
             )
-            self.voxel_viz_pub.publish(voxel_msg)
+            self.voxel_viz_pub.publish(voxel_viz_msg)
+
+            voxel_msg = self.make_voxel_msg(self.localmapper.voxel_grid)
+            self.voxel_pub.publish(voxel_msg)
+
+            pcl_msg = self.make_pcl_msg(res["dino_pcl"], vmin=vmin, vmax=vmax)
+            self.pcl_pub.publish(pcl_msg)
+
+            img_msg = self.make_img_msg(res["dino_image"], vmin=vmin, vmax=vmax)
+            self.image_pub.publish(img_msg)
 
     def spin(self):
         self.get_logger().info("spinning...")
