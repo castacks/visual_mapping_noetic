@@ -1,4 +1,4 @@
-models_dir: /home/tartandriver/workspace/models
+models_dir: /home/tartandriver/tartandriver_ws/models
 
 image:
     folder: image_left_color
