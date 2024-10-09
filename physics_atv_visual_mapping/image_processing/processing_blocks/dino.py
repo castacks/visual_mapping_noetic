@@ -1,17 +1,19 @@
 import os
+import torch
 
 from physics_atv_visual_mapping.image_processing.anyloc_utils import DinoV2ExtractFeatures
 from physics_atv_visual_mapping.image_processing.processing_blocks.base import ImageProcessingBlock
-from ament_index_python.packages import get_package_share_directory
 
 class Dinov2Block(ImageProcessingBlock):
     """
     Image processing block that runs dino on the image
     """
-    def __init__(self, dino_type, dino_layer, image_insize, desc_facet, device, models_dir, dino_dir='dinov2/hub'):
-        dino_dir = os.path.join(models_dir, dino_dir)
+    def __init__(self, dino_type, dino_layer, image_insize, desc_facet, device, models_dir):
+        torch.hub.set_dir(os.path.join(models_dir, 'torch_hub'))
+        dino_dir = os.path.join(models_dir, 'torch_hub', 'facebookresearch_dinov2_main')
 
-        self.dino = DinoV2ExtractFeatures(dino_dir,
+        self.dino = DinoV2ExtractFeatures(
+            dino_dir,
             dino_model=dino_type,
             layer=dino_layer,
             input_size=image_insize,

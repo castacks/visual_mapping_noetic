@@ -91,9 +91,6 @@ if __name__ == '__main__':
 
     print('pcl->image timesync errs: mean: {:.4f}s, max: {:.4f}s'.format(pcl_errs.mean(), pcl_errs.max()))
 
-    ## finally, actually run the mapping
-    localmap_agg = None
-
     for ii in tqdm.tqdm(range(len(image_ts))):
         pcl_fp = os.path.join(args.run_dir, args.pcl, '{:06d}.npy'.format(pcl_idxs[ii]))
         image_fp = os.path.join(args.run_dir, args.image, '{:06d}.png'.format(ii))

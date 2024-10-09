@@ -1,6 +1,5 @@
 import os
 import torch
-import rospkg
 import torchvision
 import torch.nn.functional as F
 # from ptflops import get_model_complexity_info
@@ -16,8 +15,15 @@ class RadioBlock(ImageProcessingBlock):
         self.input_size = image_insize
         self.output_size = (int(image_insize[0]/16),int(image_insize[1]/16))
         self.radio_type = radio_type
-        
-        radio = torch.hub.load('NVlabs/RADIO', 'radio_model', version=radio_type, progress=True, skip_validation=True) #  force_reload=True
+
+        #call this to run from local
+        torch.hub.set_dir(os.path.join(models_dir, 'torch_hub'))
+        radio_fp = os.path.join(models_dir, 'torch_hub', 'NVlabs_RADIO_main')
+        radio = torch.hub.load(radio_fp, 'radio_model', version=radio_type, progress=True, skip_validation=True, source='local') #  force_reload=True
+
+        #call this to download (TODO: make a download models script)
+        # radio = torch.hub.load('NVlabs/RADIO', 'radio_model', version=radio_type, progress=True, skip_validation=True, source='github') #  force_reload=True
+
         if "e-radio" in radio_type:
             radio.model.set_optimal_window_size([image_insize[1], image_insize[0]])
 
