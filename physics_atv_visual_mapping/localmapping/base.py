@@ -4,11 +4,13 @@ import torch
 
 from physics_atv_visual_mapping.localmapping.metadata import LocalMapperMetadata
 
+
 class LocalMapper(abc.ABC):
     """
     Base mapper class (interface for BEV, voxel mapping)
     """
-    def __init__(self, metadata: LocalMapperMetadata, device='cpu'):
+
+    def __init__(self, metadata: LocalMapperMetadata, device="cpu"):
         """
         Args:
             metadata: Metadata to define the map coordinates relative to poses
@@ -20,7 +22,7 @@ class LocalMapper(abc.ABC):
         self.device = device
 
     @abc.abstractmethod
-    def update_pose(self, pose:torch.Tensor) -> None:
+    def update_pose(self, pose: torch.Tensor) -> None:
         """Update the pose of the localmapper
 
         Args:
@@ -29,7 +31,7 @@ class LocalMapper(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def add_feature_pc(self, pts:torch.Tensor, features:torch.Tensor)->None:
+    def add_feature_pc(self, pts: torch.Tensor, features: torch.Tensor) -> None:
         """Add new feature points to the local mapper
 
         Args:

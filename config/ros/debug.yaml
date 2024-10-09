@@ -27,16 +27,16 @@ extrinsics:
     q: [0.569, -0.549, 0.416, 0.450] #xyzw
 
 image_processing:
-    # -
-    #     type: radio
-    #     args:
-    #         radio_type: radio_v2.5-b # radio_v2 e-radio_v2
-    #         image_insize: [672, 352]  # Original Image Size must be divisible by 16
+    -
+        type: radio
+        args:
+            radio_type: radio_v2.5-b # radio_v2 e-radio_v2
+            image_insize: [672, 352]  # Original Image Size must be divisible by 16
 
-    # - 
-    #     type: pca
-    #     args:
-    #         fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
+    - 
+        type: pca
+        args:
+            fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
 
 
     # -
@@ -52,23 +52,24 @@ image_processing:
     #         fp: physics_atv_visual_mapping/pca/dino_vitb_10_renegade_ridge.pt
 
 
-    -
-        type: sam
-        args:
-            image_insize: [686, 364] #this should be the size of the input images
-            sam_path: segment_anything_models/sam_vit_b_01ec64.pth
-            sam_type: vit_b #one of [vit_b]
+    # -
+    #     type: sam
+    #     args:
+    #         image_insize: [686, 364] #this should be the size of the input images
+    #         sam_path: segment_anything_models/sam_vit_b_01ec64.pth
+    #         sam_type: vit_b #one of [vit_b]
 
-    -
-        type: pca
-        args:
-            fp: physics_atv_visual_mapping/pca/sam_renegade_ridge.pt
+    # -
+    #     type: pca
+    #     args:
+    #         fp: physics_atv_visual_mapping/pca/sam_renegade_ridge.pt
 
 #voxel
 localmapping:
-    layer_key: dino
+    mapper_type: voxel
+    layer_key: radio
     ema: 0.1 #higher->use recent more
-    n_features: 64
+    n_features: 8
     metadata:
         origin: [-40., -40., -20.]
         length: [80., 80., 40.]
@@ -76,9 +77,10 @@ localmapping:
 
 # #BEV
 # localmapping:
-#     layer_key: dino
+#     mapper_type: bev
+#     layer_key: radio
 #     ema: 0.1 #higher->use recent more
-#     n_features: 64
+#     n_features: 8
 #     metadata:
 #         origin: [-40., -40.]
 #         length: [80., 80.]

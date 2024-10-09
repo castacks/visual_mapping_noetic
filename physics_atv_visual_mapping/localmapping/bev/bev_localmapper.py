@@ -5,13 +5,15 @@ import matplotlib.pyplot as plt
 from physics_atv_visual_mapping.localmapping.base import LocalMapper
 from physics_atv_visual_mapping.utils import *
 
+
 class BEVLocalMapper(LocalMapper):
-    """Class for local mapping in BEV
-    """
+    """Class for local mapping in BEV"""
+
     def __init__(self, metadata, n_features, ema, device):
         super().__init__(metadata, device)
-        assert metadata.ndims == 2, 'BEVLocalMapper requires 2d metadata'
+        assert metadata.ndims == 2, "BEVLocalMapper requires 2d metadata"
         self.bev_grid = BEVGrid(self.metadata, n_features, device)
+        self.n_features = n_features
         self.ema = ema
 
     def update_pose(self, pose: torch.Tensor):
@@ -19,10 +21,14 @@ class BEVLocalMapper(LocalMapper):
         Args:
             pose: [N] Tensor (we will take the first two elements as the new pose)
         """
-        new_origin = ((pose[:2] + self.base_metadata.origin)//self.base_metadata.resolution) * self.base_metadata.resolution
+        new_origin = (
+            (pose[:2] + self.base_metadata.origin) // self.base_metadata.resolution
+        ) * self.base_metadata.resolution
         self.bev_grid.metadata = self.metadata
 
-        px_shift = torch.round((new_origin - self.metadata.origin) / self.metadata.resolution).long()
+        px_shift = torch.round(
+            (new_origin - self.metadata.origin) / self.metadata.resolution
+        ).long()
         self.bev_grid.shift(px_shift)
         self.metadata.origin = new_origin
 
@@ -35,18 +41,22 @@ class BEVLocalMapper(LocalMapper):
         self.bev_grid.known = self.bev_grid.known | bev_grid_new.known
 
         self.bev_grid.data[to_add] = bev_grid_new.data[to_add]
-        self.bev_grid.data[to_merge] = (1.-self.ema)*self.bev_grid.data[to_merge] + self.ema*bev_grid_new.data[to_merge]
+        self.bev_grid.data[to_merge] = (1.0 - self.ema) * self.bev_grid.data[
+            to_merge
+        ] + self.ema * bev_grid_new.data[to_merge]
 
     def to(self, device):
         self.device = device
         self.bev_grid = self.bev_grid.to(device)
         self.metadata = self.metadata.to(device)
         return self
-    
+
+
 class BEVGrid:
     """
     Actual class that handles feature aggregation
     """
+
     def from_feature_pc(pts, features, metadata):
         """
         Instantiate a BEVGrid from a feauture pc
@@ -57,7 +67,13 @@ class BEVGrid:
         res_map = torch.zeros(*metadata.N, features.shape[-1], device=features.device)
         raster_map = res_map.view(-1, features.shape[-1])
 
-        torch_scatter.scatter(features[valid_mask], raster_idxs[valid_mask], dim=0, out=raster_map, reduce='mean')
+        torch_scatter.scatter(
+            features[valid_mask],
+            raster_idxs[valid_mask],
+            dim=0,
+            out=raster_map,
+            reduce="mean",
+        )
         known_map = torch.linalg.norm(res_map, dim=-1) > 1e-6
         bevgrid.data = res_map
         bevgrid.known = known_map
@@ -75,9 +91,14 @@ class BEVGrid:
         Get indexes for positions given map metadata
         """
         gidxs = ((pts[:, :2] - self.metadata.origin) / self.metadata.resolution).long()
-        mask = (gidxs[:, 0] >= 0) & (gidxs[:, 0] < self.metadata.N[0]) & (gidxs[:, 1] >= 0) & (gidxs[:, 1] < self.metadata.N[1])
+        mask = (
+            (gidxs[:, 0] >= 0)
+            & (gidxs[:, 0] < self.metadata.N[0])
+            & (gidxs[:, 1] >= 0)
+            & (gidxs[:, 1] < self.metadata.N[1])
+        )
         return gidxs, mask
-    
+
     def shift(self, px_shift):
         """
         Apply a pixel shift to the map
@@ -92,20 +113,20 @@ class BEVGrid:
         self.known = torch.roll(self.known, shifts=[-dgx, -dgy], dims=[0, 1])
 
         if dgx > 0:
-            self.data[-dgx:] = 0.
+            self.data[-dgx:] = 0.0
             self.known[-dgx:] = False
         elif dgx < 0:
-            self.data[:-dgx] = 0.
+            self.data[:-dgx] = 0.0
             self.known[:-dgx] = False
         if dgy > 0:
-            self.data[:, -dgy:] = 0.
+            self.data[:, -dgy:] = 0.0
             self.known[:, -dgy:] = False
         elif dgy < 0:
-            self.data[:, :-dgy] = 0.
+            self.data[:, :-dgy] = 0.0
             self.known[:, :-dgy] = False
 
-        #update metadata
-        self.metadata.origin += px_shift*self.metadata.resolution[0]
+        # update metadata
+        self.metadata.origin += px_shift * self.metadata.resolution[0]
 
     def visualize(self, fig=None, axs=None):
         if fig is None or axs is None:
@@ -118,17 +139,21 @@ class BEVGrid:
             self.metadata.origin[1].item() + self.metadata.length[1].item(),
         )
 
-        axs[0].imshow(normalize_dino(self.data[...,:3]).permute(1,0,2).cpu().numpy(), origin='lower', extent=extent)
-        axs[1].imshow(self.known.T.cpu().numpy(), origin='lower', extent=extent)
+        axs[0].imshow(
+            normalize_dino(self.data[..., :3]).permute(1, 0, 2).cpu().numpy(),
+            origin="lower",
+            extent=extent,
+        )
+        axs[1].imshow(self.known.T.cpu().numpy(), origin="lower", extent=extent)
 
-        axs[0].set_title('features')
-        axs[1].set_title('known')
+        axs[0].set_title("features")
+        axs[1].set_title("known")
 
-        axs[0].set_xlabel('X(m)')
-        axs[0].set_ylabel('Y(m)')
+        axs[0].set_xlabel("X(m)")
+        axs[0].set_ylabel("Y(m)")
 
-        axs[1].set_xlabel('X(m)')
-        axs[1].set_ylabel('Y(m)')
+        axs[1].set_xlabel("X(m)")
+        axs[1].set_ylabel("Y(m)")
 
         return fig, axs
 

@@ -4,19 +4,17 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import TransformBroadcaster
 
+
 class OdometryToTF(Node):
     def __init__(self):
-        super().__init__('odometry_to_tf')
+        super().__init__("odometry_to_tf")
 
         # Create a transform broadcaster to publish the tf
         self.tf_broadcaster = TransformBroadcaster(self)
 
         # Subscribe to the /odom topic
         self.odom_subscriber = self.create_subscription(
-            Odometry,
-            '/zedx/zed_node/odom',
-            self.handle_odom,
-            10
+            Odometry, "/zedx/zed_node/odom", self.handle_odom, 10
         )
 
     def handle_odom(self, msg):
@@ -25,8 +23,8 @@ class OdometryToTF(Node):
 
         # Set the header (time and frame ID)
         t.header.stamp = msg.header.stamp
-        t.header.frame_id = 'odom'  # Parent frame (odom)
-        t.child_frame_id = 'base_link'  # Child frame (base_link)
+        t.header.frame_id = "odom"  # Parent frame (odom)
+        t.child_frame_id = "base_link"  # Child frame (base_link)
 
         # Use the position from the odometry message
         t.transform.translation.x = msg.pose.pose.position.x
@@ -38,6 +36,7 @@ class OdometryToTF(Node):
 
         # Broadcast the transform
         self.tf_broadcaster.sendTransform(t)
+
 
 def main(args=None):
     rclpy.init(args=args)
@@ -53,5 +52,6 @@ def main(args=None):
     finally:
         rclpy.shutdown()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

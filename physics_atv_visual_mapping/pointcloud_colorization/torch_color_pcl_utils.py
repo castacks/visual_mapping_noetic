@@ -1,7 +1,8 @@
 import numpy as np
-import rclpy 
+import rclpy
 import torch
-#import matplotlib.pyplot as plt
+
+# import matplotlib.pyplot as plt
 import cv2
 from functools import reduce
 import time
@@ -10,10 +11,11 @@ import std_msgs.msg
 from sensor_msgs.msg import PointCloud2, PointField, Image, CameraInfo
 from std_msgs.msg import Header
 
-#TODO fix assumptions of 3/4D pointclouds (ideally just pass in the first 3 dimensions when calling these functions?)
+# TODO fix assumptions of 3/4D pointclouds (ideally just pass in the first 3 dimensions when calling these functions?)
+
 
 def remove_invalid(lidar_points):
-    '''Removes invalid points from dense pointcloud to create sparse pointcloud.
+    """Removes invalid points from dense pointcloud to create sparse pointcloud.
 
     Args:
         - lidar_points:
@@ -22,22 +24,23 @@ def remove_invalid(lidar_points):
     Returns:
         - valid_points:
             Nx3 array of XYZ points that are not all 0s or NaNs
-    '''
+    """
 
     if lidar_points.shape[1] >= 4:
-        lidar_points = lidar_points[:, :3]  # Makes sure we only deal with XYZ information
+        lidar_points = lidar_points[
+            :, :3
+        ]  # Makes sure we only deal with XYZ information
 
     # Remove rows full of zeros or NaNs
     lidar_points_norm = torch.norm(lidar_points, dim=1)
     # empty_pts_idxs = torch.where(lidar_points_norm < 1e-5) # or np.isnan(lidar_points_norm))
     valid_points = lidar_points[lidar_points_norm > 1e-5]
 
-
     return valid_points
 
 
 def get_intrinsics(intrinsics_matrix, tf_in_optical=True):
-    '''Returns intrinsics matrix depending on whether we have a transform to the camera available in optical_frame or not.
+    """Returns intrinsics matrix depending on whether we have a transform to the camera available in optical_frame or not.
 
     Args:
         - intrinsics_matrix:
@@ -48,7 +51,7 @@ def get_intrinsics(intrinsics_matrix, tf_in_optical=True):
     Returns:
         - intrinsics_matrix:
             4x4 intrinsics matrix that takes into account rotation between camera axes and source axes.
-    '''
+    """
 
     if tf_in_optical:
         I = torch.eye(4)
@@ -56,14 +59,14 @@ def get_intrinsics(intrinsics_matrix, tf_in_optical=True):
         return I
     else:
         T_p_i = torch.tensor([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=torch.float32)
-        intrinsics_matrix =  torch.matmul(T_p_i, intrinsics_matrix)
+        intrinsics_matrix = torch.matmul(T_p_i, intrinsics_matrix)
         I = torch.ones(4)
         I[:3, :3] = intrinsics_matrix
         return I
 
 
 def get_extrinsics(extrinsics_matrix, tf_in_optical=True):
-    '''Returns extrinsics matrix that takes into account rotation between camera axes and source axes.
+    """Returns extrinsics matrix that takes into account rotation between camera axes and source axes.
 
     Args:
         - extrinsics_matrix:
@@ -74,7 +77,7 @@ def get_extrinsics(extrinsics_matrix, tf_in_optical=True):
     Returns:
         - extrinsics_matrix:
             4x4 extrinsics matrix that takes into account rotation between camera axes and source axes.
-    '''
+    """
 
     if tf_in_optical:
         return extrinsics_matrix
@@ -84,7 +87,7 @@ def get_extrinsics(extrinsics_matrix, tf_in_optical=True):
 
 
 def obtain_projection_matrix(intrinsics, extrinsics):
-    '''Returns projection matrix from 3D points in "target" coordinate frame to 2D points in pixel space.
+    """Returns projection matrix from 3D points in "target" coordinate frame to 2D points in pixel space.
 
     Args:
         - intrinsics:
@@ -95,7 +98,7 @@ def obtain_projection_matrix(intrinsics, extrinsics):
     Returns:
         - P:
             3x4 camera projection matrix that transforms 3D points in "source" coordinate frame to 2D points in pixel space.
-    '''
+    """
 
     P = torch.matmul(intrinsics, extrinsics)
     P = P[:-1, :]
@@ -104,7 +107,7 @@ def obtain_projection_matrix(intrinsics, extrinsics):
 
 
 def get_pixel_from_3D_source(lidar_points, P):
-    '''Returns pixel coordinates from points in 3D given a valid projection matrix.
+    """Returns pixel coordinates from points in 3D given a valid projection matrix.
 
     Args:
         - lidar_points:
@@ -115,19 +118,21 @@ def get_pixel_from_3D_source(lidar_points, P):
     Returns:
         - pixel_coordinates:
             Nx2 matrix of XY coordinates in pixel frame of reference (Origin at top left of image, (+)x points to the right, and (+)y points down).
-    '''
+    """
 
     ones = torch.ones((lidar_points.shape[0], 1)).to(lidar_points.device)
     homo_3D = torch.cat((lidar_points, ones), dim=1)
     homo_pixel = (torch.matmul(P, homo_3D.T)).T
-    homo_pixel_norm = homo_pixel/homo_pixel[:, [2]]
-    pixel_coordinates = homo_pixel_norm[:,:-1]
+    homo_pixel_norm = homo_pixel / homo_pixel[:, [2]]
+    pixel_coordinates = homo_pixel_norm[:, :-1]
 
     return pixel_coordinates
 
 
-def get_points_and_pixels_in_frame(lidar_points, pixel_coordinates, image_height, image_width):
-    '''Returns a) array of pixels that lie inside image frame, b) indices of these pixels in the input pixel_coordinates array (to then match with pointcloud).
+def get_points_and_pixels_in_frame(
+    lidar_points, pixel_coordinates, image_height, image_width
+):
+    """Returns a) array of pixels that lie inside image frame, b) indices of these pixels in the input pixel_coordinates array (to then match with pointcloud).
 
     Args:
         - lidar_points:
@@ -146,12 +151,11 @@ def get_points_and_pixels_in_frame(lidar_points, pixel_coordinates, image_height
             Nx2 matrix of XY pixel coordinates that lie within image frame
         -ind_in_frame:
             N2x1 mask of the original pointcloud points, where points in frame have true
-    '''
-    pixel_coords_x = pixel_coordinates[:,0]
-    pixel_coords_y = pixel_coordinates[:,1]
-    lidar_points_x = lidar_points[:,0]
-    lidar_points_z = lidar_points[:,2]
-
+    """
+    pixel_coords_x = pixel_coordinates[:, 0]
+    pixel_coords_y = pixel_coordinates[:, 1]
+    lidar_points_x = lidar_points[:, 0]
+    lidar_points_z = lidar_points[:, 2]
 
     ## Make sure pixels are within image frame
     cond1 = pixel_coords_x >= 0
@@ -172,14 +176,14 @@ def get_points_and_pixels_in_frame(lidar_points, pixel_coordinates, image_height
 
 
 def get_rgb_from_pixel_coords(image, pixel_coords):
-    '''Returns Nx3 array of RGB values from array of pixel coordinates.
+    """Returns Nx3 array of RGB values from array of pixel coordinates.
     TODO Fill the rest of this out
-    '''
+    """
 
     # pixel_coords_tuple = (pixel_coords[:,1].flatten(), pixel_coords[:,0].flatten())
     # print(pixel_coords.shape)
 
-    rgb_vals = image[pixel_coords[:,1], pixel_coords[:,0]]
+    rgb_vals = image[pixel_coords[:, 1], pixel_coords[:, 0]]
 
     return rgb_vals
 
@@ -203,7 +207,7 @@ def xyz_array_to_point_cloud_msg(points, frame, timestamp=None, rgb_values=None)
     header.stamp = timestamp
     msg = PointCloud2()
     msg.header = header
-    if len(points.shape)==3:
+    if len(points.shape) == 3:
         msg.width = points.shape[0]
         msg.height = points.shape[1]
     else:
@@ -215,40 +219,45 @@ def xyz_array_to_point_cloud_msg(points, frame, timestamp=None, rgb_values=None)
     msg.is_dense = False
 
     if rgb_values is None:
-        msg.fields = [PointField('x', 0, PointField.FLOAT32, 1),
-                      PointField('y', 4, PointField.FLOAT32, 1),
-                      PointField('z', 8, PointField.FLOAT32, 1), ]
+        msg.fields = [
+            PointField("x", 0, PointField.FLOAT32, 1),
+            PointField("y", 4, PointField.FLOAT32, 1),
+            PointField("z", 8, PointField.FLOAT32, 1),
+        ]
         msg.point_step = 12
         msg.row_step = msg.point_step * msg.width
         xyz = points.astype(np.float32)
         msg.data = xyz.tostring()
     else:
-        msg.fields = [PointField('x', 0, PointField.FLOAT32, 1),
-                      PointField('y', 4, PointField.FLOAT32, 1),
-                      PointField('z', 8, PointField.FLOAT32, 1),
-                      PointField('rgb', 12, PointField.UINT32, 1),]
+        msg.fields = [
+            PointField("x", 0, PointField.FLOAT32, 1),
+            PointField("y", 4, PointField.FLOAT32, 1),
+            PointField("z", 8, PointField.FLOAT32, 1),
+            PointField("rgb", 12, PointField.UINT32, 1),
+        ]
         msg.point_step = 16
         msg.row_step = msg.point_step * msg.width
 
-        xyzcolor = np.zeros( (points.shape[0], 1), \
-        dtype={
-            "names": ( "x", "y", "z", "rgba" ),
-            "formats": ( "f4", "f4", "f4", "u4" )} )
+        xyzcolor = np.zeros(
+            (points.shape[0], 1),
+            dtype={
+                "names": ("x", "y", "z", "rgba"),
+                "formats": ("f4", "f4", "f4", "u4"),
+            },
+        )
         xyzcolor["x"] = points[:, 0].reshape((-1, 1))
         xyzcolor["y"] = points[:, 1].reshape((-1, 1))
         xyzcolor["z"] = points[:, 2].reshape((-1, 1))
         color_rgba = np.zeros((points.shape[0], 4), dtype=np.uint8) + 255
-        color_rgba[:,:3] = rgb_values[:,:3]
-        xyzcolor["rgba"] = color_rgba.view('uint32')
+        color_rgba[:, :3] = rgb_values[:, :3]
+        xyzcolor["rgba"] = color_rgba.view("uint32")
         msg.data = xyzcolor.tostring()
 
     return msg
 
 
-
-
-def create_point_cloud(points, parent_frame='lidar', colors=None):
-    '''Creates a point cloud message.
+def create_point_cloud(points, parent_frame="lidar", colors=None):
+    """Creates a point cloud message.
 
     From: https://gist.github.com/pgorczak/5c717baa44479fa064eb8d33ea4587e0
 
@@ -261,9 +270,11 @@ def create_point_cloud(points, parent_frame='lidar', colors=None):
             frame in which the point cloud is defined
     Returns:
         sensor_msgs/PointCloud2 message
-    '''
+    """
 
-    msg = xyz_array_to_point_cloud_msg(points, frame=parent_frame, timestamp=None, rgb_values=colors)
+    msg = xyz_array_to_point_cloud_msg(
+        points, frame=parent_frame, timestamp=None, rgb_values=colors
+    )
     # if colors is None:
     #     msg = xyz_array_to_point_cloud_msg(points, frame=parent_frame, timestamp=None)
     # else:
@@ -286,13 +297,31 @@ def rotation(axis, angle):
         A NumPy 3x3 3D rotation matrix (SO(3)) w.r.t. input axis for
         input angle
     """
-    angle = angle*np.pi/180
+    angle = angle * np.pi / 180
 
-    if axis=="x" or axis=="X":
-        m = np.array([[1, 0, 0], [0, np.cos(angle), -np.sin(angle)], [0, np.sin(angle), np.cos(angle)]])
-    elif axis=="y" or axis=="Y":
-        m = np.array([[np.cos(angle), 0, np.sin(angle)], [0, 1, 0], [-np.sin(angle), 0, np.cos(angle)]])
+    if axis == "x" or axis == "X":
+        m = np.array(
+            [
+                [1, 0, 0],
+                [0, np.cos(angle), -np.sin(angle)],
+                [0, np.sin(angle), np.cos(angle)],
+            ]
+        )
+    elif axis == "y" or axis == "Y":
+        m = np.array(
+            [
+                [np.cos(angle), 0, np.sin(angle)],
+                [0, 1, 0],
+                [-np.sin(angle), 0, np.cos(angle)],
+            ]
+        )
     else:  # Around z axis
-        m = np.array([[np.cos(angle), -np.sin(angle), 0], [np.sin(angle), np.cos(angle), 0], [0, 0, 1]])
+        m = np.array(
+            [
+                [np.cos(angle), -np.sin(angle), 0],
+                [np.sin(angle), np.cos(angle), 0],
+                [0, 0, 1],
+            ]
+        )
 
     return m

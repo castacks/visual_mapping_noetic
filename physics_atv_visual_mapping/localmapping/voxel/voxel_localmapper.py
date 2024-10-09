@@ -5,13 +5,15 @@ import open3d as o3d
 from physics_atv_visual_mapping.localmapping.base import LocalMapper
 from physics_atv_visual_mapping.utils import *
 
+
 class VoxelLocalMapper(LocalMapper):
-    """Class for local mapping voxels
-    """
+    """Class for local mapping voxels"""
+
     def __init__(self, metadata, n_features, ema, device):
         super().__init__(metadata, device)
-        assert metadata.ndims == 3, 'VoxelLocalMapper requires 3d metadata'
+        assert metadata.ndims == 3, "VoxelLocalMapper requires 3d metadata"
         self.voxel_grid = VoxelGrid(self.metadata, n_features, device)
+        self.n_features = n_features
         self.ema = ema
 
     def update_pose(self, pose: torch.Tensor):
@@ -19,10 +21,14 @@ class VoxelLocalMapper(LocalMapper):
         Args:
             pose: [N] Tensor (we will take the first two elements as the new pose)
         """
-        new_origin = ((pose[:3] + self.base_metadata.origin)//self.base_metadata.resolution) * self.base_metadata.resolution
+        new_origin = (
+            (pose[:3] + self.base_metadata.origin) // self.base_metadata.resolution
+        ) * self.base_metadata.resolution
         self.voxel_grid.metadata = self.metadata
 
-        px_shift = torch.round((new_origin - self.metadata.origin) / self.metadata.resolution).long()
+        px_shift = torch.round(
+            (new_origin - self.metadata.origin) / self.metadata.resolution
+        ).long()
         self.voxel_grid.shift(px_shift)
         self.metadata.origin = new_origin
 
@@ -34,7 +40,9 @@ class VoxelLocalMapper(LocalMapper):
             all_raster_idxs, return_inverse=True, return_counts=True
         )
         feat_buf = torch.zeros(
-            unique_idxs.shape[0], self.voxel_grid.features.shape[-1], device=self.voxel_grid.device
+            unique_idxs.shape[0],
+            self.voxel_grid.features.shape[-1],
+            device=self.voxel_grid.device,
         )
 
         # separate out idxs that are in 1 voxel grid vs both
@@ -44,12 +52,20 @@ class VoxelLocalMapper(LocalMapper):
         vg2_is_collision = counts[vg2_inv_idxs] == 2
 
         # passthrough features in just 1 grid
-        feat_buf[vg1_inv_idxs[~vg1_is_collision]] += self.voxel_grid.features[~vg1_is_collision]
-        feat_buf[vg2_inv_idxs[~vg2_is_collision]] += voxel_grid_new.features[~vg2_is_collision]
+        feat_buf[vg1_inv_idxs[~vg1_is_collision]] += self.voxel_grid.features[
+            ~vg1_is_collision
+        ]
+        feat_buf[vg2_inv_idxs[~vg2_is_collision]] += voxel_grid_new.features[
+            ~vg2_is_collision
+        ]
 
         # merge features in both with EMA
-        feat_buf[vg1_inv_idxs[vg1_is_collision]] += (1.0 - self.ema) * self.voxel_grid.features[vg1_is_collision]
-        feat_buf[vg2_inv_idxs[vg2_is_collision]] += self.ema * voxel_grid_new.features[vg2_is_collision]
+        feat_buf[vg1_inv_idxs[vg1_is_collision]] += (
+            1.0 - self.ema
+        ) * self.voxel_grid.features[vg1_is_collision]
+        feat_buf[vg2_inv_idxs[vg2_is_collision]] += (
+            self.ema * voxel_grid_new.features[vg2_is_collision]
+        )
 
         self.voxel_grid.indices = unique_idxs
         self.voxel_grid.features = feat_buf
@@ -59,11 +75,13 @@ class VoxelLocalMapper(LocalMapper):
         self.bev_grid = self.bev_grid.to(device)
         self.metadata = self.metadata.to(device)
         return self
-    
+
+
 class VoxelGrid:
     """
     Actual class that handles feature aggregation
     """
+
     def from_feature_pc(pts, features, metadata):
         """
         Instantiate a VoxelGrid from a feauture pc
@@ -94,7 +112,7 @@ class VoxelGrid:
 
     def __init__(self, metadata, n_features, device):
         self.metadata = metadata
-        
+
         self.indices = torch.zeros(0, dtype=torch.long, device=device)
         self.features = torch.zeros(0, n_features, dtype=torch.float, device=device)
 
@@ -105,9 +123,14 @@ class VoxelGrid:
         Get indexes for positions given map metadata
         """
         gidxs = ((pts[:, :2] - self.metadata.origin) / self.metadata.resolution).long()
-        mask = (gidxs[:, 0] >= 0) & (gidxs[:, 0] < self.metadata.N[0]) & (gidxs[:, 1] >= 0) & (gidxs[:, 1] < self.metadata.N[1])
+        mask = (
+            (gidxs[:, 0] >= 0)
+            & (gidxs[:, 0] < self.metadata.N[0])
+            & (gidxs[:, 1] >= 0)
+            & (gidxs[:, 1] < self.metadata.N[1])
+        )
         return gidxs, mask
-    
+
     def shift(self, px_shift):
         """
         Apply a pixel shift to the map
@@ -168,7 +191,10 @@ class VoxelGrid:
             idxs: [Nx3] Tensor of grid indices
             valid: [N] Tensor of whether the idx in in bounds
         """
-        return ((pts - self.metadata.origin.view(1, 3)) / self.metadata.resolution.view(1, 3)).long()
+        return (
+            (pts - self.metadata.origin.view(1, 3))
+            / self.metadata.resolution.view(1, 3)
+        ).long()
 
     def grid_indices_to_pts(self, grid_indices, centers=True):
         """Convert a set of grid coordinates to cartesian coordinates
@@ -177,7 +203,9 @@ class VoxelGrid:
             grid_indices: [Nx3] Tensor of grid coordinates
             centers: Set this flag to false to return voxel lower-bottom-left, else return voxel centers
         """
-        coords = grid_indices * self.metadata.resolution.view(1, 3) + self.metadata.origin.view(1, 3)
+        coords = grid_indices * self.metadata.resolution.view(
+            1, 3
+        ) + self.metadata.origin.view(1, 3)
         if centers:
             coords += (self.metadata.resolution / 2.0).view(1, 3)
 
@@ -217,7 +245,9 @@ class VoxelGrid:
 
     def visualize(self):
         pc = o3d.geometry.PointCloud()
-        pts = self.grid_indices_to_pts(self.raster_indices_to_grid_indices(self.indices))
+        pts = self.grid_indices_to_pts(
+            self.raster_indices_to_grid_indices(self.indices)
+        )
         colors = normalize_dino(self.features[:, :3])
         pc.points = o3d.utility.Vector3dVector(pts.cpu().numpy())
         pc.colors = o3d.utility.Vector3dVector(colors.cpu().numpy())

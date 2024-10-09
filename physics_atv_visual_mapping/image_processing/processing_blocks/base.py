@@ -5,6 +5,7 @@ Should
 
 import abc
 
+
 class ImageProcessingBlock(abc.ABC):
     def __init__(self):
         pass
