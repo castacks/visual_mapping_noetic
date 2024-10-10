@@ -11,7 +11,7 @@ import torch
 import cv_bridge
 import os
 
-from std_msgs.msg import Float32MultiArray, MultiArrayDimension
+from std_msgs.msg import Float32, Float32MultiArray, MultiArrayDimension
 from sensor_msgs.msg import PointCloud2, Image, CompressedImage
 from nav_msgs.msg import Odometry
 from grid_map_msgs.msg import GridMap
@@ -108,22 +108,24 @@ class DinoMappingNode(Node):
         )
 
         self.pcl_sub = self.create_subscription(
-            PointCloud2, config["pointcloud"]["topic"], self.handle_pointcloud, 1
+            PointCloud2, config["pointcloud"]["topic"], self.handle_pointcloud, 10
         )
         self.odom_sub = self.create_subscription(
             Odometry, config["odometry"]["topic"], self.handle_odom, 10
         )
 
-        self.pcl_pub = self.create_publisher(PointCloud2, "/dino_pcl", 1)
-        self.image_pub = self.create_publisher(Image, "/dino_image", 1)
+        self.pcl_pub = self.create_publisher(PointCloud2, "/dino_pcl", 10)
+        self.image_pub = self.create_publisher(Image, "/dino_image", 10)
 
         if self.mapper_type == "bev":
-            self.gridmap_pub = self.create_publisher(GridMap, "/dino_gridmap", 1)
+            self.gridmap_pub = self.create_publisher(GridMap, "/dino_gridmap", 10)
         else:
-            self.voxel_pub = self.create_publisher(FeatureVoxelGrid, "/dino_voxels", 1)
+            self.voxel_pub = self.create_publisher(FeatureVoxelGrid, "/dino_voxels", 10)
             self.voxel_viz_pub = self.create_publisher(
                 PointCloud2, "/dino_voxels_viz", 1
             )
+
+        self.timing_pub = self.create_publisher(Float32, "/dino_proc_time", 10)
 
         self.timer = self.create_timer(0.2, self.spin)
         self.viz = config["viz"]
@@ -678,6 +680,9 @@ class DinoMappingNode(Node):
 
             img_msg = self.make_img_msg(res["dino_image"], vmin=vmin, vmax=vmax)
             self.image_pub.publish(img_msg)
+
+        timing_msg = Float32()
+        self.timing_pub.publish(timing_msg)
 
     def spin(self):
         self.get_logger().info("spinning...")
