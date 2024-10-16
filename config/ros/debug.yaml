@@ -1,4 +1,4 @@
-models_dir: /home/tartandriver/workspace/models #necessary to include this for non-ROS offline proc
+models_dir: /home/tartandriver/tartandriver_ws/models #necessary to include this for non-ROS offline proc
 
 image:
     image_topic: /multisense/left/image_rect_color
@@ -27,29 +27,30 @@ extrinsics:
     q: [0.569, -0.549, 0.416, 0.450] #xyzw
 
 image_processing:
-    -
-        type: radio
-        args:
-            radio_type: radio_v2.5-b # radio_v2 e-radio_v2
-            image_insize: [672, 352]  # Original Image Size must be divisible by 16
-
-    - 
-        type: pca
-        args:
-            fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
-
-
     # -
-    #     type: dino
+    #     type: radio
     #     args:
-    #         dino_type: dinov2_vitb14
-    #         dino_layer: 10
-    #         image_insize: [686, 364] #this should be the size of the input images
-    #         desc_facet: value
+    #         radio_type: radio_v2.5-b # radio_v2 e-radio_v2
+    #         image_insize: [672, 352]  # Original Image Size must be divisible by 16
+
     # - 
     #     type: pca
     #     args:
-    #         fp: physics_atv_visual_mapping/pca/dino_vitb_10_renegade_ridge.pt
+    #         fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
+
+
+    -
+        type: dino
+        args:
+            dino_type: dinov2_vitb14
+            dino_layer: 10
+            image_insize: [686, 364] #this should be the size of the input images
+            desc_facet: value
+    - 
+        type: pca
+        args:
+            # fp: physics_atv_visual_mapping/pca/dino_vitb_10_renegade_ridge.pt
+            fp: physics_atv_visual_mapping/pca/pca_vitb10_value.pt
 
 
     # -
@@ -66,25 +67,29 @@ image_processing:
 
 # voxel
 localmapping:
-    mapper_type: voxel
-    layer_key: radio
-    ema: 0.5 #higher->use recent more
+    # mapper_type: voxel
+    # layer_key: dino
+    # ema: 0.5 #higher->use recent more
+    # n_features: 16
+    # metadata:
+    #     origin: [-40., -40., -20.]
+    #     length: [80., 80., 40.]
+    #     resolution: [0.25, 0.25, 0.25]
+
+# BEV
+localmapping:
+    mapper_type: bev
+    layer_key: dino
+    ema: 0.1 #higher->use recent more
     n_features: 16
     metadata:
-        origin: [-40., -40., -20.]
-        length: [80., 80., 40.]
-        resolution: [0.25, 0.25, 0.25]
-
-# #BEV
-# localmapping:
-#     mapper_type: bev
-#     layer_key: radio
-#     ema: 0.1 #higher->use recent more
-#     n_features: 16
-#     metadata:
-#         origin: [-40., -40.]
-#         length: [80., 80.]
-#         resolution: [0.25, 0.25]
+        origin: [-60., -60.]
+        length: [120., 120.]
+        resolution: [0.25, 0.25]
+    # metadata:
+    #     origin: [-30., -30.]
+    #     length: [60., 60.]
+    #     resolution: [0.1, 0.1]
 
 device: cuda
 #viz: True
