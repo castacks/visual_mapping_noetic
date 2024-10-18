@@ -35,7 +35,6 @@ class BEVLocalMapper(LocalMapper):
             (new_origin - self.metadata.origin) / self.metadata.resolution
         ).long()
         self.bev_grid.shift(px_shift)
-        print(px_shift)
         self.metadata.origin = new_origin
 
     def add_feature_pc(self, pts: torch.Tensor, features: torch.Tensor):
@@ -92,7 +91,7 @@ class BEVGrid:
         )
 
         bevgrid.data = res_map
-        bevgrid.known = known_map > 1e-4 #cant scatter bool so convert here
+        bevgrid.known = known_map > 1e-8 #cant scatter bool so convert here
 
         return bevgrid
 
@@ -107,13 +106,8 @@ class BEVGrid:
         """
         Get indexes for positions given map metadata
         """
-        gidxs = ((pts[:, :2] - self.metadata.origin) / self.metadata.resolution).long()
-        mask = (
-            (gidxs[:, 0] >= 0)
-            & (gidxs[:, 0] < self.metadata.N[0])
-            & (gidxs[:, 1] >= 0)
-            & (gidxs[:, 1] < self.metadata.N[1])
-        )
+        gidxs = torch.div(pts[:, :2] - self.metadata.origin, self.metadata.resolution, rounding_mode='floor').long()
+        mask = (gidxs >= 0).all(dim=-1) & (gidxs < self.metadata.N.view(1,2)).all(dim=-1)
         return gidxs, mask
 
     def shift(self, px_shift):
