@@ -88,11 +88,10 @@ class VoxelGrid:
         """
         voxelgrid = VoxelGrid(metadata, features.shape[-1], features.device)
 
-        valid_mask = voxelgrid.pts_in_bounds(pts)
-        valid_pts = pts[valid_mask]
+        grid_idxs, valid_mask = voxelgrid.get_grid_idxs(pts)
+        valid_grid_idxs = grid_idxs[valid_mask]
         valid_feats = features[valid_mask]
 
-        valid_grid_idxs = voxelgrid.pts_to_grid_indices(valid_pts)
         valid_raster_idxs = voxelgrid.grid_indices_to_raster_indices(valid_grid_idxs)
 
         unique_raster_idxs, inv_idxs = torch.unique(
@@ -122,13 +121,8 @@ class VoxelGrid:
         """
         Get indexes for positions given map metadata
         """
-        gidxs = ((pts[:, :2] - self.metadata.origin) / self.metadata.resolution).long()
-        mask = (
-            (gidxs[:, 0] >= 0)
-            & (gidxs[:, 0] < self.metadata.N[0])
-            & (gidxs[:, 1] >= 0)
-            & (gidxs[:, 1] < self.metadata.N[1])
-        )
+        gidxs = torch.div((pts[:, :3] - self.metadata.origin.view(1,3)), self.metadata.resolution.view(1,3), rounding_mode='floor')
+        mask = (gidxs >=  0).all(dim=-1) & (gidxs < self.metadata.N.view(1,3)).all(dim=-1) 
         return gidxs, mask
 
     def shift(self, px_shift):
@@ -180,21 +174,6 @@ class VoxelGrid:
         high_check = (grid_idxs < _max).all(axis=-1)
 
         return low_check & high_check
-
-    def pts_to_grid_indices(self, pts):
-        """Convert a set of cartesian coordinates to grid coordinates
-
-        Args:
-            pts: [Nx3] Tensor of coordinates
-
-        Returns:
-            idxs: [Nx3] Tensor of grid indices
-            valid: [N] Tensor of whether the idx in in bounds
-        """
-        return (
-            (pts - self.metadata.origin.view(1, 3))
-            / self.metadata.resolution.view(1, 3)
-        ).long()
 
     def grid_indices_to_pts(self, grid_indices, centers=True):
         """Convert a set of grid coordinates to cartesian coordinates

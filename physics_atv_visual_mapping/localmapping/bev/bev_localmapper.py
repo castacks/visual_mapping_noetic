@@ -27,7 +27,7 @@ class BEVLocalMapper(LocalMapper):
             pose: [N] Tensor (we will take the first two elements as the new pose)
         """
         new_origin = (
-            (pose[:2] + self.base_metadata.origin) // self.base_metadata.resolution
+            torch.div(pose[:2] + self.base_metadata.origin, self.base_metadata.resolution, rounding_mode='floor')
         ) * self.base_metadata.resolution
         self.bev_grid.metadata = self.metadata
 
@@ -35,6 +35,7 @@ class BEVLocalMapper(LocalMapper):
             (new_origin - self.metadata.origin) / self.metadata.resolution
         ).long()
         self.bev_grid.shift(px_shift)
+        print(px_shift)
         self.metadata.origin = new_origin
 
     def add_feature_pc(self, pts: torch.Tensor, features: torch.Tensor):
@@ -70,7 +71,9 @@ class BEVGrid:
         grid_idxs, valid_mask = bevgrid.get_grid_idxs(pts)
         raster_idxs = grid_idxs[:, 0] * metadata.N[1] + grid_idxs[:, 1]
         res_map = torch.zeros(*metadata.N, features.shape[-1], device=features.device)
+        known_map = torch.zeros(*metadata.N, device=features.device)
         raster_map = res_map.view(-1, features.shape[-1])
+        raster_known_map = known_map.view(-1)
 
         torch_scatter.scatter(
             features[valid_mask],
@@ -79,9 +82,17 @@ class BEVGrid:
             out=raster_map,
             reduce="mean",
         )
-        known_map = torch.linalg.norm(res_map, dim=-1) > 1e-6
+
+        torch_scatter.scatter(
+            torch.ones(valid_mask.sum(), device=features.device),
+            raster_idxs[valid_mask],
+            dim=0,
+            out=raster_known_map,
+            reduce="mean",
+        )
+
         bevgrid.data = res_map
-        bevgrid.known = known_map
+        bevgrid.known = known_map > 1e-4 #cant scatter bool so convert here
 
         return bevgrid
 

@@ -88,9 +88,6 @@ def pose_to_htm(pose):
 def transform_points(points, htm):
     """ """
     pt_pos = points[:, :3]
-    print(
-        "number of points", pt_pos.shape
-    )  # Example: number of points torch.Size([85845, 3])
     pt_pos = torch.cat([pt_pos, torch.ones_like(pt_pos[:, [0]])], dim=-1)
     pt_tf_pos = htm.view(1, 4, 4) @ pt_pos.view(-1, 4, 1)
     points[:, :3] = pt_tf_pos[:, :3, 0]
