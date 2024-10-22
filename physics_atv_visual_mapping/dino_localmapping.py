@@ -358,7 +358,6 @@ class DinoMappingNode(Node):
         gridmap_data = self.localmapper.bev_grid.data.cpu().numpy()
 
         # setup metadata
-        print("gridmap_msg", dir(gridmap_msg.info))
         gridmap_msg.header.stamp = self.img_msg.header.stamp
         gridmap_msg.header.frame_id = self.odom_frame
 
