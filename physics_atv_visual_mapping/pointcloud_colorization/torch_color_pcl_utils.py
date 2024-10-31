@@ -52,15 +52,15 @@ def get_intrinsics(intrinsics_matrix, tf_in_optical=True):
         - intrinsics_matrix:
             4x4 intrinsics matrix that takes into account rotation between camera axes and source axes.
     """
-    device = intrinsics_matrix.device
+
     if tf_in_optical:
-        I = torch.eye(4, device=device)
+        I = torch.eye(4)
         I[:3, :3] = intrinsics_matrix
         return I
     else:
-        T_p_i = torch.tensor([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=torch.float32, device=device)
+        T_p_i = torch.tensor([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=torch.float32)
         intrinsics_matrix = torch.matmul(T_p_i, intrinsics_matrix)
-        I = torch.ones(4, device=device)
+        I = torch.ones(4)
         I[:3, :3] = intrinsics_matrix
         return I
 
@@ -167,7 +167,7 @@ def get_points_and_pixels_in_frame(
     ## Don't count points above a certain height
     cond6 = lidar_points_z < 1
 
-    ind_in_frame = cond1 & cond2 & cond3 & cond4 & cond5 & cond6
+    ind_in_frame = cond1 & cond2 & cond3 & cond4 & cond5 #& cond6
 
     lidar_points_in_frame = lidar_points[ind_in_frame, :]
     pixels_in_frame = pixel_coordinates[ind_in_frame, :].long()

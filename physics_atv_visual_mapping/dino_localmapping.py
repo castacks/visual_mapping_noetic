@@ -50,6 +50,8 @@ class DinoMappingNode(Node):
             self.get_parameter("models_dir").get_parameter_value().string_value
         )
 
+        self.vehicle_frame = config["vehicle_frame"]
+
         self.localmap = None
         self.pcl_msg = None
         self.odom_msg = None
@@ -174,8 +176,6 @@ class DinoMappingNode(Node):
 
     def handle_pointcloud(self, msg):
         self.pcl_msg = msg
-        # self.pcl_msg.header.frame_id = 'zed_camera_link' # TODO: parametrize
-        self.pcl_msg.header.frame_id = "vehicle"
 
     def handle_odom(self, msg):
         if self.odom_frame is None:
@@ -204,9 +204,25 @@ class DinoMappingNode(Node):
             self.get_logger().warn("no img msg received")
             return None
 
-        if self.odom_msg.child_frame_id != self.pcl_msg.header.frame_id:
-            self.get_logger().warn("for now, need pcls in the child frame of odom")
+        if not self.tf_buffer.can_transform(
+            self.vehicle_frame,
+            self.pcl_msg.header.frame_id,
+            rclpy.time.Time.from_msg(self.pcl_msg.header.stamp),
+        ):
+            self.get_logger().warn(
+                "cant tf from {} to {} at {}".format(
+                    self.vehicle_frame,
+                    self.pcl_msg.header.frame_id,
+                    self.pcl_msg.header.stamp,
+                )
+            )
             return None
+
+        tf_vehicle_to_pcl_msg = self.tf_buffer.lookup_transform(
+            self.vehicle_frame,
+            self.pcl_msg.header.frame_id,
+            rclpy.time.Time.from_msg(self.pcl_msg.header.stamp),
+        )
 
         if not self.tf_buffer.can_transform(
             self.odom_frame,
@@ -222,15 +238,19 @@ class DinoMappingNode(Node):
             )
             return None
 
-        tf_msg = self.tf_buffer.lookup_transform(
+        tf_odom_to_pcl_msg = self.tf_buffer.lookup_transform(
             self.odom_frame,
             self.pcl_msg.header.frame_id,
             rclpy.time.Time.from_msg(self.pcl_msg.header.stamp),
         )
-
-        pcl_htm = tf_msg_to_htm(tf_msg).to(self.device)
+        
         pcl = pcl_msg_to_xyz(self.pcl_msg).to(self.device)
-        pcl_odom = transform_points(pcl.clone(), pcl_htm)
+
+        vehicle_to_pcl_htm = tf_msg_to_htm(tf_vehicle_to_pcl_msg).to(self.device)
+        pcl_in_vehicle = transform_points(pcl.clone(), vehicle_to_pcl_htm)
+
+        odom_to_pcl_htm = tf_msg_to_htm(tf_odom_to_pcl_msg).to(self.device)
+        pcl_in_odom = transform_points(pcl.clone(), odom_to_pcl_htm)
 
         self.last_update_time = pcl_time
 
@@ -264,17 +284,17 @@ class DinoMappingNode(Node):
         E = get_extrinsics(self.extrinsics).to(self.device)
         P = obtain_projection_matrix(I, E)
 
-        pixel_coordinates = get_pixel_from_3D_source(pcl[:, :3], P)
+        pixel_coordinates = get_pixel_from_3D_source(pcl_in_vehicle[:, :3], P)
         (
             lidar_points_in_frame,
             pixels_in_frame,
             ind_in_frame,
         ) = get_points_and_pixels_in_frame(
-            pcl[:, :3], pixel_coordinates, dino_img.shape[0], dino_img.shape[1]
+            pcl_in_vehicle[:, :3], pixel_coordinates, dino_img.shape[0], dino_img.shape[1]
         )
 
         dino_features = dino_img[pixels_in_frame[:, 1], pixels_in_frame[:, 0]]
-        dino_pcl = torch.cat([pcl_odom[ind_in_frame][:, :3], dino_features], dim=-1)
+        dino_pcl = torch.cat([pcl_in_odom[ind_in_frame][:, :3], dino_features], dim=-1)
 
         pos = torch.tensor(
             [
@@ -285,9 +305,11 @@ class DinoMappingNode(Node):
             device=self.device,
         )
 
+        self.get_logger().info('colorized {}/{} points'.format(dino_pcl.shape[0], pcl_in_vehicle.shape[0]))
+
         return {
             "pos": pos,
-            "pcl": pcl_odom,
+            "pcl": pcl_in_odom,
             "image": img,
             "dino_image": dino_img,
             "dino_pcl": dino_pcl,
@@ -358,6 +380,7 @@ class DinoMappingNode(Node):
         gridmap_data = self.localmapper.bev_grid.data.cpu().numpy()
 
         # setup metadata
+        print("gridmap_msg", dir(gridmap_msg.info))
         gridmap_msg.header.stamp = self.img_msg.header.stamp
         gridmap_msg.header.frame_id = self.odom_frame
 
