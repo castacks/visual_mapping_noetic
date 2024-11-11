@@ -54,11 +54,11 @@ def get_intrinsics(intrinsics_matrix, tf_in_optical=True):
     """
 
     if tf_in_optical:
-        I = torch.eye(4)
+        I = torch.eye(4, device=intrinsics_matrix.device)
         I[:3, :3] = intrinsics_matrix
         return I
     else:
-        T_p_i = torch.tensor([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=torch.float32)
+        T_p_i = torch.tensor([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], dtype=torch.float32, device=intrinsics_matrix.device)
         intrinsics_matrix = torch.matmul(T_p_i, intrinsics_matrix)
         I = torch.ones(4)
         I[:3, :3] = intrinsics_matrix
