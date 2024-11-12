@@ -317,7 +317,6 @@ class DinoMappingNode(Node):
         }
 
     def make_voxel_msg(self, voxel_grid):
-        self.get_logger().warn("TODO publish voxel msg")
         msg = FeatureVoxelGrid()
         msg.header.stamp = self.pcl_msg.header.stamp
         msg.header.frame_id = self.odom_frame

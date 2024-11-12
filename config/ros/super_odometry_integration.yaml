@@ -32,29 +32,30 @@ extrinsics:
     q: [0.569, -0.549, 0.416, 0.450] #xyzw
 
 image_processing:
-    -
-        type: radio
-        args:
-            radio_type: radio_v2.5-b # radio_v2 e-radio_v2
-            image_insize: [672, 352]  # Original Image Size must be divisible by 16
-
-    - 
-        type: pca
-        args:
-            fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
-
-
     # -
-    #     type: dino
+    #     type: radio
     #     args:
-    #         dino_type: dinov2_vitb14
-    #         dino_layer: 10
-    #         image_insize: [686, 364] #this should be the size of the input images
-    #         desc_facet: value
+    #         radio_type: radio_v2.5-b # radio_v2 e-radio_v2
+    #         image_insize: [672, 352]  # Original Image Size must be divisible by 16
+
     # - 
     #     type: pca
     #     args:
-    #         fp: physics_atv_visual_mapping/pca/dino_vitb_10_renegade_ridge.pt
+    #         fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
+
+
+    -
+        type: dino
+        args:
+            dino_type: dinov2_vitb14
+            dino_layer: 10
+            image_insize: [686, 364] #this should be the size of the input images
+            desc_facet: value
+    - 
+        type: pca
+        args:
+            # fp: physics_atv_visual_mapping/pca/dino_vitb_10_renegade_ridge.pt
+            fp: physics_atv_visual_mapping/pca/pca_vitb10_value.pt
 
 
     # -
