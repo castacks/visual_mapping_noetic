@@ -22,6 +22,8 @@ from physics_atv_visual_mapping.localmapping.voxel.voxel_localmapper import (
 )
 from physics_atv_visual_mapping.localmapping.metadata import LocalMapperMetadata
 
+from physics_atv_visual_mapping.terrain_estimation.terrain_estimation_pipeline import setup_terrain_estimation_pipeline
+
 """
 Run the dino mapping offline on the kitti-formatted dataset
 """
@@ -44,7 +46,7 @@ if __name__ == "__main__":
         help="name of image folder",
     )
     parser.add_argument(
-        "--output_folder",
+        "--output_dir",
         type=str,
         required=False,
         default="local_visual_map",
@@ -60,7 +62,7 @@ if __name__ == "__main__":
     config = yaml.safe_load(open(args.config, "r"))
 
     # setup io
-    os.makedirs(os.path.join(args.run_dir, args.output_folder), exist_ok=True)
+    os.makedirs(os.path.join(args.run_dir, args.output_dir), exist_ok=True)
 
     intrinsics = (
         torch.tensor(config["intrinsics"]["K"]).reshape(3, 3).to(config["device"])
@@ -83,6 +85,11 @@ if __name__ == "__main__":
         ema=config["localmapping"]["ema"],
         device=config["device"],
     )
+
+    # setup terrain estimation
+    do_terrain_estimation = 'terrain_estimation' in config.keys()
+    if do_terrain_estimation:
+        terrain_estimator = setup_terrain_estimation_pipeline(config)
 
     ## first create the trajectory interpolator
     odom_dir = os.path.join(args.run_dir, args.odom)
@@ -161,37 +168,24 @@ if __name__ == "__main__":
         pose = pose_to_htm(pose).to(config["device"])
         feature_pcl = transform_points(feature_pcl, pose)
 
-        # import open3d as o3d
-        # pc = o3d.geometry.PointCloud()
-        # pc.points = o3d.utility.Vector3dVector(feature_pcl[:, :3].cpu().numpy())
-        # pc.colors = o3d.utility.Vector3dVector(normalize_dino(feature_pcl[:, 3:6]).cpu().numpy())
-        # o3d.visualization.draw_geometries([pc])
-
-        ## START LOCALMAPPING REFACTOR ##
-
         localmapper.update_pose(pose[:3, -1])
         localmapper.add_feature_pc(pts=feature_pcl[:, :3], features=feature_pcl[:, 3:])
-        ## END LOCALMAPPING REFACTOR ##
 
-        # ## save outputs
-        # out_data_fp = os.path.join(args.run_dir, args.output_folder, '{:06d}_data.npy'.format(gi))
-        # out_metadata_fp = os.path.join(args.run_dir, args.output_folder, '{:06d}_metadata.yaml'.format(gi))
-
-        # #store gridmaps as channels-first
-        # data_out = localmap_agg['data'].permute(2,0,1).cpu().numpy()
-        # metadata_out = {
-        #     'origin': localmap_agg['metadata']['origin'].cpu().numpy().tolist(),
-        #     'width': localmap_agg['metadata']['length_x'].item(),
-        #     'height': localmap_agg['metadata']['length_y'].item(),
-        #     'resolution': localmap_agg['metadata']['resolution'].item(),
-        #     'feature_keys': ['feature_{}'.format(i) for i in range(data_out.shape[0])],
-        # }
-
-        # np.save(out_data_fp, data_out)
-        # with open(out_metadata_fp, 'w') as fh:
-        #     yaml.dump(metadata_out, fh)
-
+        if do_terrain_estimation:
+            bev_features = terrain_estimator.run(localmapper.voxel_grid)
+            torch.cuda.synchronize()
+   
         if ii % 100 == 0:
             # localmapper.bev_grid.visualize()
+            fig, axs = plt.subplots(4, 5, figsize=(16, 16))
+            axs = axs.flatten()
+            for ki, k in enumerate(bev_features.feature_keys):
+                data = bev_features.data[..., ki]
+                axs[ki].imshow(data.T.cpu().numpy(), origin='lower', cmap='jet', interpolation='none')
+                axs[ki].set_title(k)
+
+            plt.show()
+
             localmapper.voxel_grid.visualize()
+
             plt.show()

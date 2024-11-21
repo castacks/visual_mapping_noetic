@@ -33,7 +33,7 @@ class VoxelLocalMapper(LocalMapper):
         self.metadata.origin = new_origin
 
     def add_feature_pc(self, pts: torch.Tensor, features: torch.Tensor):
-        voxel_grid_new = VoxelGrid.from_feature_pc(pts, features, self.metadata)
+        voxel_grid_new = VoxelGrid.from_feature_pc(pts, features[:, :self.n_features], self.metadata)
 
         all_raster_idxs = torch.cat([self.voxel_grid.indices, voxel_grid_new.indices])
         unique_idxs, inv_idxs, counts = torch.unique(

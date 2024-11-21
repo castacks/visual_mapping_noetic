@@ -38,7 +38,7 @@ class BEVLocalMapper(LocalMapper):
         self.metadata.origin = new_origin
 
     def add_feature_pc(self, pts: torch.Tensor, features: torch.Tensor):
-        bev_grid_new = BEVGrid.from_feature_pc(pts, features, self.feature_keys, self.metadata)
+        bev_grid_new = BEVGrid.from_feature_pc(pts, features[:, :self.n_features], self.feature_keys, self.metadata)
 
         to_add = bev_grid_new.known & ~self.bev_grid.known
         to_merge = bev_grid_new.known & self.bev_grid.known
