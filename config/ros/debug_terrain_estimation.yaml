@@ -85,7 +85,7 @@ terrain_estimation:
             input_layer: min_elevation_filtered_inflated
             mask_layer: min_elevation_filtered_inflated_mask
 
-            itrs: 50   #num updates
+            itrs: 20   #num updates
             alpha: 10. #weight on the measurement update
             beta: 10.  #weight on the neighbor update
             lr: 0.05   #learning rate
@@ -102,12 +102,6 @@ terrain_estimation:
             terrain_layer: terrain
             max_elevation_layer: max_elevation
             max_elevation_mask_layer: num_voxels
-
-    # - 
-    #     type: bev_feature_splat
-    #     args:
-    #         output_key: raw_bev
-
     -
         type: terrain_aware_bev_feature_splat
         args:

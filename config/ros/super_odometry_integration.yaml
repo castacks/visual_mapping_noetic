@@ -32,18 +32,6 @@ extrinsics:
     q: [0.569, -0.549, 0.416, 0.450] #xyzw
 
 image_processing:
-    # -
-    #     type: radio
-    #     args:
-    #         radio_type: radio_v2.5-b # radio_v2 e-radio_v2
-    #         image_insize: [672, 352]  # Original Image Size must be divisible by 16
-
-    # - 
-    #     type: pca
-    #     args:
-    #         fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
-
-
     -
         type: dino
         args:
@@ -57,40 +45,75 @@ image_processing:
             # fp: physics_atv_visual_mapping/pca/dino_vitb_10_renegade_ridge.pt
             fp: physics_atv_visual_mapping/pca/pca_vitb10_value.pt
 
-
-    # -
-    #     type: sam
-    #     args:
-    #         image_insize: [686, 364] #this should be the size of the input images
-    #         sam_path: segment_anything_models/sam_vit_b_01ec64.pth
-    #         sam_type: vit_b #one of [vit_b]
-
-    # -
-    #     type: pca
-    #     args:
-    #         fp: physics_atv_visual_mapping/pca/sam_renegade_ridge.pt
-
-# # voxel
-# localmapping:
-#     mapper_type: voxel
-#     layer_key: radio
-#     ema: 0.5 #higher->use recent more
-#     n_features: 16
-#     metadata:
-#         origin: [-60., -60., -30.]
-#         length: [120., 120., 60.]
-#         resolution: [0.25, 0.25, 0.25]
-
-#BEV
+# voxel
 localmapping:
-    mapper_type: bev
-    layer_key: dino
-    ema: 0.1 #higher->use recent more
-    n_features: 16
+    mapper_type: voxel
+    layer_key: radio
+    ema: 0.5 #higher->use recent more
+    n_features: 3
     metadata:
-        origin: [-40., -40.]
-        length: [80., 80.]
-        resolution: [0.25, 0.25]
+        origin: [-60., -60., -30.]
+        length: [120., 120., 60.]
+        resolution: [0.25, 0.25, 0.25]
+
+terrain_estimation:
+    -
+        type: elevation_stats
+        args: {}
+
+    -
+        type: elevation_filter
+        args:
+            input_layer: min_elevation
+            cnt_layer: num_voxels
+
+            kernel_radius: 2. #kernel radius in m
+            kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+            kernel_sharpness: 5. #sharpness of (Gaussian) kernel
+
+            height_low_thresh: -3.0 #cells this far below their neighbors are not terrain
+            height_high_thresh: 0.5 #cells this far above their neighbors are not terrain
+
+    -
+        type: terrain_inflation
+        args:
+            input_layer: min_elevation_filtered
+            mask_layer: min_elevation_filtered_mask
+
+            kernel_radius: 5. #kernel radius in m
+            kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+            kernel_sharpness: 10. #sharpness of (Gaussian) kernel
+
+    - 
+        type: mrf_terrain_estimation
+        args: 
+            input_layer: min_elevation_filtered_inflated
+            mask_layer: min_elevation_filtered_inflated_mask
+
+            itrs: 50   #num updates
+            alpha: 1. #weight on the measurement update
+            beta: 10.  #weight on the neighbor update
+            lr: 0.01   #learning rate
+
+    - 
+        type: slope
+        args:
+            input_layer: terrain
+            mask_layer: min_elevation_filtered_inflated_mask
+
+    -
+        type: terrain_diff
+        args:
+            terrain_layer: terrain
+            max_elevation_layer: max_elevation
+            max_elevation_mask_layer: num_voxels
+    -
+        type: terrain_aware_bev_feature_splat
+        args:
+            output_key: terrain_bev
+            terrain_layer: terrain
+            terrain_mask_layer: min_elevation_filtered_inflated_mask
+            overhang: 2.0
 
 device: cuda
 #viz: True
