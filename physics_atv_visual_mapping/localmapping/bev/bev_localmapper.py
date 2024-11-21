@@ -75,22 +75,22 @@ class BEVGrid:
         raster_known_map = known_map.view(-1)
 
         torch_scatter.scatter(
-            features[valid_mask],
-            raster_idxs[valid_mask],
-            dim=0,
-            out=raster_map,
-            reduce="mean",
-        )
-
-        torch_scatter.scatter(
             torch.ones(valid_mask.sum(), device=features.device),
             raster_idxs[valid_mask],
             dim=0,
             out=raster_known_map,
+            reduce="sum",
+        )
+
+        raster_map = torch_scatter.scatter(
+            features[valid_mask],
+            raster_idxs[valid_mask],
+            dim=0,
+            dim_size = metadata.N[0] * metadata.N[1],
             reduce="mean",
         )
 
-        bevgrid.data = res_map
+        bevgrid.data = raster_map.view(*metadata.N, -1)
         bevgrid.known = known_map > 1e-8 #cant scatter bool so convert here
 
         return bevgrid

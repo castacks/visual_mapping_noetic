@@ -97,11 +97,9 @@ class VoxelGrid:
         unique_raster_idxs, inv_idxs = torch.unique(
             valid_raster_idxs, return_inverse=True
         )
-        feat_buf = torch.zeros(
-            unique_raster_idxs.shape[0], features.shape[-1], device=features.device
-        )
-        torch_scatter.scatter(
-            src=valid_feats, index=inv_idxs, out=feat_buf, reduce="mean", dim=0
+        
+        feat_buf = torch_scatter.scatter(
+            src=valid_feats, index=inv_idxs, dim_size=unique_raster_idxs.shape[0], reduce="mean", dim=0
         )
 
         voxelgrid.indices = unique_raster_idxs

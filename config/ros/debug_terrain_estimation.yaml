@@ -45,7 +45,7 @@ localmapping:
     mapper_type: voxel
     layer_key: radio
     ema: 0.5 #higher->use recent more
-    n_features: 3
+    n_features: 64
     metadata:
         origin: [-60., -60., -30.]
         length: [120., 120., 60.]
@@ -68,12 +68,6 @@ terrain_estimation:
 
             height_low_thresh: -3.0 #cells this far below their neighbors are not terrain
             height_high_thresh: 0.5 #cells this far above their neighbors are not terrain
-            
-    # -
-    #     type: sdf
-    #     args:
-    #         input_layer: num_voxels
-    #         signed: true
 
     -
         type: terrain_inflation
@@ -109,10 +103,10 @@ terrain_estimation:
             max_elevation_layer: max_elevation
             max_elevation_mask_layer: num_voxels
 
-    - 
-        type: bev_feature_splat
-        args:
-            output_key: raw_bev
+    # - 
+    #     type: bev_feature_splat
+    #     args:
+    #         output_key: raw_bev
 
     -
         type: terrain_aware_bev_feature_splat

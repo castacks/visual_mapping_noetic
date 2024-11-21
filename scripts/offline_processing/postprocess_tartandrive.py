@@ -175,17 +175,17 @@ if __name__ == "__main__":
             bev_features = terrain_estimator.run(localmapper.voxel_grid)
             torch.cuda.synchronize()
    
-        if ii % 100 == 0:
-            # localmapper.bev_grid.visualize()
-            fig, axs = plt.subplots(4, 5, figsize=(16, 16))
-            axs = axs.flatten()
-            for ki, k in enumerate(bev_features.feature_keys):
-                data = bev_features.data[..., ki]
-                axs[ki].imshow(data.T.cpu().numpy(), origin='lower', cmap='jet', interpolation='none')
-                axs[ki].set_title(k)
-
-            plt.show()
-
+        if (ii+1) % 100 == 0:
+            # localmapper.bev_grid.visualize();plt.show()
             localmapper.voxel_grid.visualize()
 
+            fig, axs = plt.subplots(4, 4, figsize=(16, 16))
+            axs = axs.flatten()
+            for i in range(min(len(axs), len(bev_features.feature_keys))):
+                k = bev_features.feature_keys[i]
+                data = bev_features.data[..., i]
+                axs[i].imshow(data.T.cpu().numpy(), origin='lower', cmap='jet', interpolation='none')
+                axs[i].set_title(k)
+
+            fig.suptitle('showing 16 of {} features'.format(len(bev_features.feature_keys)))
             plt.show()
