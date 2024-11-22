@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-def setup_kernel(kernel_type, kernel_radius, kernel_sharpness, metadata):
+def setup_kernel(metadata, kernel_type='box', kernel_radius=1., kernel_sharpness=1.):
     """
     Setup terrain estimation kernel
     Args:
@@ -16,6 +16,12 @@ def setup_kernel(kernel_type, kernel_radius, kernel_sharpness, metadata):
         return box_kernel(kernel_dx)
     elif kernel_type == 'gaussian':
         return gaussian_kernel(kernel_dx, kernel_sharpness)
+    elif kernel_type == 'neighbors':
+        return torch.tensor([
+            [0., 1., 0.],
+            [1., -4., 1.],
+            [0., 1., 0.]
+        ])
 
 def box_kernel(rad):
     return torch.ones(2*rad[0]+1, 2*rad[1]+1)
@@ -41,7 +47,7 @@ def sobel_y_kernel():
         [-1., 0., 1.]
     ])
 
-def apply_kernel(kernel, data):
+def apply_kernel(kernel, data, pad_mode='constant', pad_value=0.):
     """
     apply kernel to data
     """
@@ -52,7 +58,7 @@ def apply_kernel(kernel, data):
         kernel.shape[0]//2,
         kernel.shape[0]//2,
     ]
-    _data = F.pad(data, pad=kernel_pad, mode='constant', value=0.)
+    _data = F.pad(data, pad=kernel_pad, mode=pad_mode, value=pad_value)
 
     _kernel_shape = kernel.shape
     _data_shape = _data.shape

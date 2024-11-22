@@ -8,17 +8,12 @@ class TerrainInflation(TerrainEstimationBlock):
     """
     Compute a per-cell min and max height
     """
-    def __init__(self, voxel_metadata, voxel_n_features, input_layer, mask_layer, kernel_radius, kernel_type, kernel_sharpness, device):
+    def __init__(self, voxel_metadata, voxel_n_features, input_layer, mask_layer, kernel_params, device):
         super().__init__(voxel_metadata, voxel_n_features, device)
         self.input_layer = input_layer
         self.mask_layer = mask_layer
         
-        self.kernel = setup_kernel(
-            kernel_radius = kernel_radius,
-            kernel_type = kernel_type,
-            kernel_sharpness = kernel_sharpness,
-            metadata = voxel_metadata
-        ).to(device)
+        self.kernel = setup_kernel(**kernel_params, metadata=voxel_metadata).to(device)
         
     def to(self, device):
         self.device = device

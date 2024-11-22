@@ -67,12 +67,13 @@ terrain_estimation:
             input_layer: min_elevation
             cnt_layer: num_voxels
 
-            kernel_radius: 2. #kernel radius in m
-            kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
-            kernel_sharpness: 5. #sharpness of (Gaussian) kernel
-
             height_low_thresh: -3.0 #cells this far below their neighbors are not terrain
             height_high_thresh: 0.5 #cells this far above their neighbors are not terrain
+
+            kernel_params:
+                kernel_radius: 2. #kernel radius in m
+                kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+                kernel_sharpness: 2. #sharpness of (Gaussian) kernel
 
     -
         type: terrain_inflation
@@ -80,9 +81,10 @@ terrain_estimation:
             input_layer: min_elevation_filtered
             mask_layer: min_elevation_filtered_mask
 
-            kernel_radius: 5. #kernel radius in m
-            kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
-            kernel_sharpness: 10. #sharpness of (Gaussian) kernel
+            kernel_params:
+                kernel_radius: 5. #kernel radius in m
+                kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+                kernel_sharpness: 2. #sharpness of (Gaussian) kernel
 
     - 
         type: mrf_terrain_estimation
@@ -90,10 +92,15 @@ terrain_estimation:
             input_layer: min_elevation_filtered_inflated
             mask_layer: min_elevation_filtered_inflated_mask
 
-            itrs: 50   #num updates
-            alpha: 1. #weight on the measurement update
+            itrs: 20   #num updates
+            alpha: 4. #weight on the measurement update
             beta: 10.  #weight on the neighbor update
             lr: 0.01   #learning rate
+
+            kernel_params:
+                kernel_radius: 2. #kernel radius in m
+                kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+                kernel_sharpness: 2. #sharpness of (Gaussian) kernel
 
     - 
         type: slope

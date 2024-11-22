@@ -8,18 +8,15 @@ class ElevationFilter(TerrainEstimationBlock):
     """
     Compute a per-cell min and max height
     """
-    def __init__(self, voxel_metadata, voxel_n_features, input_layer, cnt_layer, kernel_radius, kernel_type, kernel_sharpness, height_low_thresh, height_high_thresh, device):
+    def __init__(self, voxel_metadata, voxel_n_features, input_layer, cnt_layer, kernel_params, height_low_thresh, height_high_thresh, device):
         super().__init__(voxel_metadata, voxel_n_features, device)
         self.input_layer = input_layer
         self.cnt_layer = cnt_layer
-        self.kernel = setup_kernel(
-            kernel_radius = kernel_radius,
-            kernel_type = kernel_type,
-            kernel_sharpness = kernel_sharpness,
-            metadata = voxel_metadata
-        ).to(device)
+
         self.height_low_thresh = height_low_thresh
         self.height_high_thresh = height_high_thresh
+
+        self.kernel = setup_kernel(**kernel_params, metadata=voxel_metadata).to(device)
         
     def to(self, device):
         self.kernel = self.kernel.to(deivce)
