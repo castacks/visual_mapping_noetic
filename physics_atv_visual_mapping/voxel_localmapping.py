@@ -620,6 +620,19 @@ class VoxelMappingNode(Node):
         vmin = colors.min(dim=0)[0]
         vmax = colors.max(dim=0)[0]
 
+        all_idxs = torch.cat([self.localmapper.voxel_grid.indices, self.localmapper.voxel_grid.all_indices])
+        unique, cnts = torch.unique(all_idxs, return_counts=True)
+        non_colorized_idxs = unique[cnts==1]
+
+        non_colorized_pts = self.localmapper.voxel_grid.grid_indices_to_pts(
+            self.localmapper.voxel_grid.raster_indices_to_grid_indices(non_colorized_idxs)
+        )
+
+        color_placeholder = 0.1 * torch.ones(non_colorized_pts.shape[0], 3, device=non_colorized_pts.device)
+
+        pts = torch.cat([pts, non_colorized_pts], dim=0)
+        colors = torch.cat([colors, color_placeholder], dim=0)
+
         voxel_viz_msg = self.make_pcl_msg(
             torch.cat([pts, colors], axis=-1), vmin=vmin, vmax=vmax
         )
@@ -658,10 +671,13 @@ class VoxelMappingNode(Node):
                 )
             )
 
+            self.get_logger().info(str(res.keys()))
+
             self.localmapper.update_pose(res["pos"])
             self.localmapper.add_feature_pc(
                 pts=pts, features=features[:, : self.localmapper.n_features]
             )
+            self.localmapper.add_pc(res["pcl"][:, :3])
 
             if self.do_terrain_estimation:
                 self.bev_grid = self.terrain_estimator.run(self.localmapper.voxel_grid)

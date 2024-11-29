@@ -168,8 +168,13 @@ if __name__ == "__main__":
         pose = pose_to_htm(pose).to(config["device"])
         feature_pcl = transform_points(feature_pcl, pose)
 
+        no_feature_pcl = transform_points(pcl, pose)
+
         localmapper.update_pose(pose[:3, -1])
         localmapper.add_feature_pc(pts=feature_pcl[:, :3], features=feature_pcl[:, 3:])
+
+        #also add non-colorized points
+        localmapper.add_pc(pts=no_feature_pcl[:, :3])
 
         if do_terrain_estimation:
             bev_features = terrain_estimator.run(localmapper.voxel_grid)

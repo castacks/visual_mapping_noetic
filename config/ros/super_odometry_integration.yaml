@@ -98,7 +98,7 @@ terrain_estimation:
             lr: 0.01   #learning rate
 
             kernel_params:
-                kernel_radius: 2. #kernel radius in m
+                kernel_radius: 1. #kernel radius in m
                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
                 kernel_sharpness: 2. #sharpness of (Gaussian) kernel
 
