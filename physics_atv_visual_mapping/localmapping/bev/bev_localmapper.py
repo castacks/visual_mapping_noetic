@@ -38,7 +38,7 @@ class BEVLocalMapper(LocalMapper):
         self.metadata.origin = new_origin
 
     def add_feature_pc(self, pts: torch.Tensor, features: torch.Tensor):
-        bev_grid_new = BEVGrid.from_feature_pc(pts, features, self.feature_keys, self.metadata)
+        bev_grid_new = BEVGrid.from_feature_pc(pts, features[:, :self.n_features], self.feature_keys, self.metadata)
 
         to_add = bev_grid_new.known & ~self.bev_grid.known
         to_merge = bev_grid_new.known & self.bev_grid.known
@@ -75,22 +75,22 @@ class BEVGrid:
         raster_known_map = known_map.view(-1)
 
         torch_scatter.scatter(
-            features[valid_mask],
-            raster_idxs[valid_mask],
-            dim=0,
-            out=raster_map,
-            reduce="mean",
-        )
-
-        torch_scatter.scatter(
             torch.ones(valid_mask.sum(), device=features.device),
             raster_idxs[valid_mask],
             dim=0,
             out=raster_known_map,
+            reduce="sum",
+        )
+
+        raster_map = torch_scatter.scatter(
+            features[valid_mask],
+            raster_idxs[valid_mask],
+            dim=0,
+            dim_size = metadata.N[0] * metadata.N[1],
             reduce="mean",
         )
 
-        bevgrid.data = res_map
+        bevgrid.data = raster_map.view(*metadata.N, -1)
         bevgrid.known = known_map > 1e-8 #cant scatter bool so convert here
 
         return bevgrid
