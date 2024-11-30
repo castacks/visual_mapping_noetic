@@ -1,4 +1,4 @@
-models_dir: /home/tartandriver/workspace/models #necessary to include this for non-ROS offline proc
+models_dir: /home/tartandriver/tartandriver_ws/models #necessary to include this for non-ROS offline proc
 
 image:
     image_topic: /multisense/left/image_rect_color
@@ -6,11 +6,11 @@ image:
     image_compressed: False
 
 pointcloud:
-    topic: /superodometry/velodyne_cloud_registered
+    topic: /velodyne_cloud_registered_with_features
 #    topic: /coloroze_pcl_node/colorized_pcl
 
 odometry:
-    topic: /superodometry/integrated_to_init
+    topic: /integrated_to_init
 
 gridmap:
     topic: local_gridmap
@@ -25,32 +25,27 @@ intrinsics:
 
 #transform from the vehicle link to the camera link
 extrinsics:
-#    p: [0.0, 0.0, -0.1274]
-#    q: [-0.549, 0.554, -0.445, -0.440] #xyzw
-
     p: [0.0, 0.4, -0.3]
     q: [0.569, -0.549, 0.416, 0.450] #xyzw
 
 image_processing:
     -
-        type: dino
+        type: radio
         args:
-            dino_type: dinov2_vitb14
-            dino_layer: 10
-            image_insize: [686, 364] #this should be the size of the input images
-            desc_facet: value
+            radio_type: radio_v2.5-b # radio_v2 e-radio_v2
+            image_insize: [672, 352]  # Original Image Size must be divisible by 16
+
     - 
         type: pca
         args:
-            # fp: physics_atv_visual_mapping/pca/dino_vitb_10_renegade_ridge.pt
-            fp: physics_atv_visual_mapping/pca/pca_vitb10_value.pt
+            fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
 
 # voxel
 localmapping:
     mapper_type: voxel
     layer_key: radio
     ema: 0.5 #higher->use recent more
-    n_features: 3
+    n_features: 64
     metadata:
         origin: [-60., -60., -30.]
         length: [120., 120., 60.]
@@ -73,7 +68,7 @@ terrain_estimation:
             kernel_params:
                 kernel_radius: 2. #kernel radius in m
                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
-                kernel_sharpness: 2. #sharpness of (Gaussian) kernel
+                kernel_sharpness: 5. #sharpness of (Gaussian) kernel
 
     -
         type: terrain_inflation
@@ -84,7 +79,7 @@ terrain_estimation:
             kernel_params:
                 kernel_radius: 5. #kernel radius in m
                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
-                kernel_sharpness: 2. #sharpness of (Gaussian) kernel
+                kernel_sharpness: 10. #sharpness of (Gaussian) kernel
 
     - 
         type: mrf_terrain_estimation
@@ -93,14 +88,14 @@ terrain_estimation:
             mask_layer: min_elevation_filtered_inflated_mask
 
             itrs: 20   #num updates
-            alpha: 4. #weight on the measurement update
+            alpha: 10. #weight on the measurement update
             beta: 10.  #weight on the neighbor update
-            lr: 0.01   #learning rate
+            lr: 0.05   #learning rate
 
             kernel_params:
-                kernel_radius: 1. #kernel radius in m
+                kernel_radius: 5. #kernel radius in m
                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
-                kernel_sharpness: 2. #sharpness of (Gaussian) kernel
+                kernel_sharpness: 10. #sharpness of (Gaussian) kernel
 
     - 
         type: slope
@@ -123,5 +118,4 @@ terrain_estimation:
             overhang: 2.0
 
 device: cuda
-#viz: True
 viz: False

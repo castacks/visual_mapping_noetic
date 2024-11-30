@@ -25,6 +25,7 @@ setup(
     entry_points={
         "console_scripts": [
             "dino_localmapping = physics_atv_visual_mapping.dino_localmapping:main",
+            "voxel_localmapping = physics_atv_visual_mapping.voxel_localmapping:main",
             "dino_cost = physics_atv_visual_mapping.dino_cost:main",
             "odom_to_tf = physics_atv_visual_mapping.odom_to_tf:main",
         ],
