@@ -638,8 +638,8 @@ class VoxelMappingNode(Node):
         )
         self.voxel_viz_pub.publish(voxel_viz_msg)
 
-        voxel_msg = self.make_voxel_msg(self.localmapper.voxel_grid)
-        self.voxel_pub.publish(voxel_msg)
+        # voxel_msg = self.make_voxel_msg(self.localmapper.voxel_grid)
+        # self.voxel_pub.publish(voxel_msg)
 
         pcl_msg = self.make_pcl_msg(res["dino_pcl"], vmin=vmin, vmax=vmax)
         self.pcl_pub.publish(pcl_msg)
@@ -685,6 +685,7 @@ class VoxelMappingNode(Node):
             after_update_time = time.time()
             self.publish_messages(res)
             after_publish_time = time.time()
+
             self.get_logger().info(
                 "preprocess time: {}".format(after_preprocess_time - start_time)
             )

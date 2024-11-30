@@ -52,8 +52,8 @@ localmapping:
     ema: 0.1 #higher->use recent more
     n_features: 16
     metadata:
-        origin: [-40., -40.]
-        length: [80., 80.]
+        origin: [-80., -80.]
+        length: [160., 160.]
         resolution: [0.25, 0.25]
 
 device: cuda
