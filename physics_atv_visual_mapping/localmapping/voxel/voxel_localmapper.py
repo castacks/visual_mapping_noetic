@@ -164,6 +164,12 @@ class VoxelGrid:
 
         self.device = device
 
+    @property
+    def non_feature_indices(self):
+        _idxs = torch.cat([self.indices, self.all_indices])
+        idxs, cnts = torch.unique(_idxs, return_counts=True)
+        return idxs[cnts==1]
+
     def get_grid_idxs(self, pts):
         """
         Get indexes for positions given map metadata
