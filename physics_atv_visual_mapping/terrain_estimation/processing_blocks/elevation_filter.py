@@ -19,7 +19,7 @@ class ElevationFilter(TerrainEstimationBlock):
         self.kernel = setup_kernel(**kernel_params, metadata=voxel_metadata).to(device)
         
     def to(self, device):
-        self.kernel = self.kernel.to(deivce)
+        self.kernel = self.kernel.to(device)
         self.device = device
         return self
 

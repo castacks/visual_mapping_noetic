@@ -99,7 +99,7 @@ class VoxelLocalMapper(LocalMapper):
 
     def to(self, device):
         self.device = device
-        self.bev_grid = self.bev_grid.to(device)
+        self.voxel_grid = self.voxel_grid.to(device)
         self.metadata = self.metadata.to(device)
         return self
 

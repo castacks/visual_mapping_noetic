@@ -18,8 +18,8 @@ class Slope(TerrainEstimationBlock):
         self.box = torch.ones_like(self.sobel_x)/9.
 
     def to(self, device):
-        self.sobel_x = sobel_x.to(device)
-        self.sobel_y = sobel_y.to(device)
+        self.sobel_x = self.sobel_x.to(device)
+        self.sobel_y = self.sobel_y.to(device)
         self.device = device
         return self
 
