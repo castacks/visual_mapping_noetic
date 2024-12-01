@@ -20,6 +20,7 @@ class RadioBlock(ImageProcessingBlock):
         self.input_size = image_insize
         self.output_size = (int(image_insize[0] / 16), int(image_insize[1] / 16))
         self.radio_type = radio_type
+        self.device = device
 
         # call this to run from local
         torch.hub.set_dir(os.path.join(models_dir, "torch_hub"))
@@ -44,7 +45,7 @@ class RadioBlock(ImageProcessingBlock):
     def preprocess(self, img):
         assert len(img.shape) == 4, "need to batch images"
         assert img.shape[1] == 3, "expects channels-first"
-        img = img.cuda().float()
+        img = img.to(self.device).float()
         img = torchvision.transforms.functional.resize(
             img, (self.input_size[1], self.input_size[0])
         )
