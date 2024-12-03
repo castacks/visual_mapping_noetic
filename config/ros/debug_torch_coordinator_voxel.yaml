@@ -116,7 +116,7 @@ terrain_estimation:
             output_key: dino
             terrain_layer: terrain
             terrain_mask_layer: min_elevation_filtered_inflated_mask
-            overhang: 2.0
+            overhang: 1.7
 
 device: cuda
 viz: False
