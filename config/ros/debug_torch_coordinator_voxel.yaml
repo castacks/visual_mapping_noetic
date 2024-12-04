@@ -6,11 +6,11 @@ image:
     image_compressed: False
 
 pointcloud:
-    topic: /velodyne_cloud_registered_with_features
-#    topic: /coloroze_pcl_node/colorized_pcl
+    # topic: /velodyne_cloud_registered_with_features
+   topic: /velodyne_1/velodyne_points
 
 odometry:
-    topic: /integrated_to_init
+    topic: /superodometry/integrated_to_init
 
 gridmap:
     topic: local_gridmap
