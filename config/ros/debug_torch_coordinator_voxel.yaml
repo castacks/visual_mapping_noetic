@@ -50,7 +50,7 @@ localmapping:
     metadata:
         origin: [-60., -60., -30.]
         length: [120., 120., 60.]
-        resolution: [0.25, 0.25, 0.25]
+        resolution: [0.4, 0.4, 0.4]
 
 terrain_estimation:
     -
@@ -88,7 +88,7 @@ terrain_estimation:
             input_layer: min_elevation_filtered_inflated
             mask_layer: min_elevation_filtered_inflated_mask
 
-            itrs: 20   #num updates
+            itrs: 1   #num updates
             alpha: 10. #weight on the measurement update
             beta: 10.  #weight on the neighbor update
             lr: 0.05   #learning rate
