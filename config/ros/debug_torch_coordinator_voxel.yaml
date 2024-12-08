@@ -88,7 +88,7 @@ terrain_estimation:
             input_layer: min_elevation_filtered_inflated
             mask_layer: min_elevation_filtered_inflated_mask
 
-            itrs: 1   #num updates
+            itrs: 0   #num updates
             alpha: 10. #weight on the measurement update
             beta: 10.  #weight on the neighbor update
             lr: 0.05   #learning rate
