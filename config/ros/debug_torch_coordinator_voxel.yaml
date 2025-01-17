@@ -29,17 +29,28 @@ extrinsics:
     q: [0.569, -0.549, 0.416, 0.450] #xyzw
 
 image_processing:
+    # -
+    #     type: dino
+    #     args:
+    #         dino_type: dinov2_vitb14
+    #         dino_layer: 10
+    #         image_insize: [686, 364] #this should be the size of the input images
+    #         desc_facet: value
+    # - 
+    #     type: pca
+    #     args:
+    #         fp: physics_atv_visual_mapping/pca/pca_vitb10_value.pt
+
     -
-        type: dino
+        type: radio
         args:
-            dino_type: dinov2_vitb14
-            dino_layer: 10
-            image_insize: [686, 364] #this should be the size of the input images
-            desc_facet: value
+            radio_type: radio_v2.5-b # radio_v2 e-radio_v2
+            image_insize: [672, 352]  # Original Image Size must be divisible by 16
+
     - 
         type: pca
         args:
-            fp: physics_atv_visual_mapping/pca/pca_vitb10_value.pt
+            fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
 
 # voxel
 localmapping:
@@ -51,6 +62,9 @@ localmapping:
         origin: [-60., -60., -30.]
         length: [120., 120., 60.]
         resolution: [0.4, 0.4, 0.4]
+        # origin: [-30., -30., -15.]
+        # length: [60., 60., 30.]
+        # resolution: [0.2, 0.2, 0.2]
 
 terrain_estimation:
     -
@@ -67,9 +81,13 @@ terrain_estimation:
             height_high_thresh: 0.5 #cells this far above their neighbors are not terrain
 
             kernel_params:
-                kernel_radius: 2. #kernel radius in m
                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+
+                kernel_radius: 2. #kernel radius in m
                 kernel_sharpness: 5. #sharpness of (Gaussian) kernel
+
+                # kernel_radius: 0.25 #kernel radius in m
+                # kernel_sharpness: 0.5 #sharpness of (Gaussian) kernel
 
     -
         type: terrain_inflation
@@ -78,9 +96,13 @@ terrain_estimation:
             mask_layer: min_elevation_filtered_mask
 
             kernel_params:
-                kernel_radius: 5. #kernel radius in m
                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+
+                kernel_radius: 5. #kernel radius in m
                 kernel_sharpness: 10. #sharpness of (Gaussian) kernel
+
+                # kernel_radius: 0.5 #kernel radius in m
+                # kernel_sharpness: 1.0 #sharpness of (Gaussian) kernel
 
     - 
         type: mrf_terrain_estimation
@@ -88,15 +110,19 @@ terrain_estimation:
             input_layer: min_elevation_filtered_inflated
             mask_layer: min_elevation_filtered_inflated_mask
 
-            itrs: 10   #num updates
+            itrs: 1   #num updates
             alpha: 5. #weight on the measurement update
             beta: 10.  #weight on the neighbor update
             lr: 0.05   #learning rate
 
             kernel_params:
-                kernel_radius: 5. #kernel radius in m
                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+
+                kernel_radius: 5. #kernel radius in m
                 kernel_sharpness: 10. #sharpness of (Gaussian) kernel
+
+                # kernel_radius: 0.5
+                # kernel_sharpness: 1.0
 
     - 
         type: slope
