@@ -6,7 +6,7 @@ import torch
 import numpy as np
 import argparse
 import matplotlib.pyplot as plt
-
+from termcolor import colored
 
 from tartandriver_utils.geometry_utils import TrajectoryInterpolator
 
@@ -31,6 +31,7 @@ if __name__ == "__main__":
     parser.add_argument('--pc_in_local', action='store_true', help='set this flag if the pc is in the sensor frame, otherwise assume in odom frame')
     parser.add_argument('--pc_lim', type=float, nargs=2, required=False, default=[5., 100.], help='limit on range (m) of pts to consider')
     parser.add_argument('--pca_nfeats', type=int, required=False, default=64, help='number of pca feats to use')
+    parser.add_argument('--n_frames', type=int, required=False, default=3000, help='process this many frames for the pca')
     args = parser.parse_args()
 
     config = yaml.safe_load(open(args.config, "r"))
@@ -49,6 +50,16 @@ if __name__ == "__main__":
     intrinsics = get_intrinsics(torch.tensor(config["intrinsics"]["K"]).reshape(3, 3))
     # dont combine because we need to recalculate given dino
 
+    #if config already has a pca, remove it.
+    image_processing_config = []
+    for ip_block in config['image_processing']:
+        if ip_block['type'] == 'pca':
+            print(colored('WARNING: found an existing PCA block in the image processing config. removing...', 'yellow'))
+            break
+        image_processing_config.append(ip_block)
+
+    config['image_processing'] = image_processing_config
+
     pipeline = setup_image_pipeline(config)
 
     dino_buf = []
@@ -60,7 +71,16 @@ if __name__ == "__main__":
     else:
         run_dirs = [os.path.join(args.data_dir, x) for x in os.listdir(args.data_dir)]
 
-    print("computing for {} run dirs".format(len(run_dirs)))
+    N_samples = 0
+    for ddir in run_dirs:
+        odom_dir = os.path.join(ddir, config["odometry"]["folder"])
+        poses = np.loadtxt(os.path.join(odom_dir, "data.txt"))
+        N_samples += poses.shape[0]
+
+    n_frames = min(args.n_frames, N_samples)
+    proc_every = int(N_samples / n_frames)
+
+    print("computing for {} run dirs ({} samples, proc every {}th frame.)".format(len(run_dirs), N_samples, proc_every))
 
     for ddir in tqdm.tqdm(run_dirs):
         odom_dir = os.path.join(ddir, config["odometry"]["folder"])
@@ -90,7 +110,7 @@ if __name__ == "__main__":
         print("found {} valid pcl-image pairs".format(pcl_valid_mask.sum()))
 
         for pcl_idx in tqdm.tqdm(pcl_valid_idxs):
-            if pcl_idx % 10 == 0:
+            if pcl_idx % proc_every == 0:
                 pcl_fp = os.path.join(pcl_dir, "{:08d}.npy".format(pcl_idx))
                 pcl_t = pcl_ts[pcl_idx]
                 pcl = torch.from_numpy(np.load(pcl_fp)).to(config["device"]).float()
