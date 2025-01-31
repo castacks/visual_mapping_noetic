@@ -13,13 +13,21 @@ class ThermalBlock(ImageProcessingBlock):
     Image processing block that convert 16bit thermal to 8bit color
     """
 
-    def __init__(self, process, enhance, rectify, distortion, device):
+    def __init__(self, process, enhance, rectify, distortion, colormap=None, device='cpu'):
         self.process = process
         self.enhance = enhance
         self.rectify = rectify
         self.distortion = distortion
-        print('thermal initialized')
-    
+
+        self.colormap_dict = {
+            "jet": cv2.COLORMAP_JET,  # Similar to FLIR's "Ironbow"
+            "inferno": cv2.COLORMAP_INFERNO,  # FLIR-like AGC coloring
+            "plasma": cv2.COLORMAP_PLASMA,
+            "turbo": cv2.COLORMAP_TURBO,
+            "hot": cv2.COLORMAP_HOT,  # Intensity-based, strong reds
+        }
+        self.colormap = self.colormap_dict.get(colormap) if colormap else None
+
     def rectify_image(self, image, intrinsics):
         distortion_coeffs = np.array(self.distortion)
         rectified_image = cv2.undistort(image, intrinsics, distortion_coeffs)
@@ -34,6 +42,7 @@ class ThermalBlock(ImageProcessingBlock):
         return bilateral
 
     def process_image(self, image_in, type):
+        # converts 16bit to 8bit
         if type == "minmax":
             image_out = (image_in - np.min(image_in)) / (np.max(image_in) - np.min(image_in)) * 255
         elif type == "hist_99":
@@ -54,11 +63,29 @@ class ThermalBlock(ImageProcessingBlock):
 
         return image_out.astype(np.uint8)
 
+    def apply_colormap(self, image):
+        # applies a thermal colormap for visualization
+        # For now manually define the mask for non-vehicle regions
+        non_vehicle_region = image[:470, :]  # Exclude bottom rows
+
+        lower_bound = np.percentile(non_vehicle_region, 2)
+        upper_bound = np.percentile(non_vehicle_region, 98)
+
+        # Clip and normalize the entire image using non-vehicle values
+        image_clipped = np.clip(image, lower_bound, upper_bound)
+        image_8bit = ((image_clipped - lower_bound) / (upper_bound - lower_bound)) * 255.0
+        image_8bit = image_8bit.astype(np.uint8)
+
+        return cv2.applyColorMap(image_8bit, self.colormap)
+
     def run(self, image, intrinsics):
         img_out = self.process_image(image, self.process)
-        if self.enhance:
-            img_out = self.enhance_image(img_out)
         if self.rectify:
             img_out = self.rectify_image(img_out, intrinsics.cpu().numpy())
+        if self.enhance:
+            img_out = self.enhance_image(img_out)
+        if self.colormap:
+            img_out = self.apply_colormap(img_out) #Output [H,W,3] now
+            img_out = cv2.cvtColor(img_out, cv2.COLOR_BGR2RGB)
 
         return img_out, intrinsics

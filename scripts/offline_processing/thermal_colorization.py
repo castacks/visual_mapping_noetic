@@ -151,7 +151,8 @@ if __name__ == "__main__":
         img, intrinsics = image_pipeline.run(img, intrinsics)
         img = img / 255.0
         img = torch.tensor(img).to(config["device"])#[H,W]
-        img = img.unsqueeze(-1).expand(-1, -1, 3)#[H,W,3]
+        if len(img.shape) == 2:
+            img = img.unsqueeze(-1).expand(-1, -1, 3)#[H,W,3]
 
 
         I = get_intrinsics(intrinsics).to(config["device"])
