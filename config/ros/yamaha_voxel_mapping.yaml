@@ -49,12 +49,13 @@ image_processing:
         args:
             radio_type: radio_v2.5-b # radio_v2 e-radio_v2
             image_insize: [672, 352]  # Original Image Size must be divisible by 16
+            # image_insize: [1344, 704]
 
     - 
         type: pca
         args:
-            fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
-            # fp: physics_atv_visual_mapping/pca/radio_v2.5b_64_gascola_20250124.pt
+            # fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
+            fp: physics_atv_visual_mapping/pca/radio_v2.5b_64_gascola_20250124.pt
 
 # voxel
 localmapping:
@@ -63,16 +64,38 @@ localmapping:
     ema: 0.5 #higher->use recent more
     n_features: 16
     metadata:
-        origin: [-60., -60., -30.]
-        length: [120., 120., 60.]
+        # origin: [-100., -100., -30.]
+        # length: [200., 200., 60.]
+        # resolution: [0.8, 0.8, 0.8]
+        origin: [-50., -50., -10.]
+        length: [100., 100., 20.]
         resolution: [0.4, 0.4, 0.4]
         # origin: [-30., -30., -15.]
         # length: [60., 60., 30.]
         # resolution: [0.2, 0.2, 0.2]
 
+    raytracer:
+        type: frustum
+        sensor:
+            # type: VLP32C
+        
+            type: generic
+        
+            n_el: 72 #number of bins
+            el_range: [-25., 15.] #min/max angle
+            el_thresh: default #optional arg to filter based on remainder
+
+            n_az: 900
+            az_range: [-180, 180.]
+            az_thresh: default
+
 terrain_estimation:
     -
         type: elevation_stats
+        args: {}
+
+    -
+        type: porosity
         args: {}
 
     -
@@ -102,8 +125,8 @@ terrain_estimation:
             kernel_params:
                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
 
-                kernel_radius: 5. #kernel radius in m
-                kernel_sharpness: 10. #sharpness of (Gaussian) kernel
+                kernel_radius: 2. #kernel radius in m
+                kernel_sharpness: 1. #sharpness of (Gaussian) kernel
 
                 # kernel_radius: 0.5 #kernel radius in m
                 # kernel_sharpness: 1.0 #sharpness of (Gaussian) kernel
@@ -114,16 +137,16 @@ terrain_estimation:
             input_layer: min_elevation_filtered_inflated
             mask_layer: min_elevation_filtered_inflated_mask
 
-            itrs: 1   #num updates
-            alpha: 5. #weight on the measurement update
+            itrs: 5   #num updates
+            alpha: 1. #weight on the measurement update
             beta: 10.  #weight on the neighbor update
             lr: 0.05   #learning rate
 
             kernel_params:
                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
 
-                kernel_radius: 5. #kernel radius in m
-                kernel_sharpness: 10. #sharpness of (Gaussian) kernel
+                kernel_radius: 2. #kernel radius in m
+                kernel_sharpness: 1. #sharpness of (Gaussian) kernel
 
                 # kernel_radius: 0.5
                 # kernel_sharpness: 1.0
