@@ -167,14 +167,14 @@ terrain_estimation:
         type: terrain_diff
         args:
             terrain_layer: terrain
-            overhang: 1.7
+            overhang: 2.0
     -
         type: terrain_aware_bev_feature_splat
         args:
             output_key: dino
             terrain_layer: terrain
             terrain_mask_layer: min_elevation_filtered_inflated_mask
-            overhang: 1.7
+            overhang: 2.0
 
 device: cuda
 viz: True
