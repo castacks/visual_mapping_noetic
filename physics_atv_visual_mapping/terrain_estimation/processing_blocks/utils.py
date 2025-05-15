@@ -24,6 +24,10 @@ def setup_kernel(metadata, kernel_type='box', kernel_radius=1., kernel_sharpness
             [1., -4., 1.],
             [0., 1., 0.]
         ])
+    elif kernel_type=='sobel_x':
+        return sobel_x_kernel(kernel_dx)
+    elif kernel_type=='sobel_y':
+        return sobel_y_kernel(kernel_dx)
 
 def box_kernel(rad):
     return torch.ones(2*rad[0]+1, 2*rad[1]+1)
@@ -42,19 +46,30 @@ def gaussian_kernel(rad, sharp):
 
     return torch.exp(-0.5 * torch.hypot(xs, ys)**2)
 
-def sobel_x_kernel():
-    return torch.tensor([
-        [-1., -2., -1.],
-        [0., 0., 0.],
-        [1., 2., 1.]
-    ])
+#https://stackoverflow.com/questions/9567882/sobel-filter-kernel-of-large-size
+def sobel_x_kernel(rad):
+    dxs = torch.arange(-rad[0], rad[0]+1)
+    dys = torch.arange(-rad[1], rad[1]+1)
 
-def sobel_y_kernel():
-    return torch.tensor([
-        [-1., 0., 1.],
-        [-2., 0., 2.],
-        [-1., 0., 1.]
-    ])
+    dxs, dys = torch.meshgrid(dxs, dys, indexing='ij')
+    ds = dxs**2 + dys**2
+
+    kernel = torch.arange(-rad[0], rad[0]+1).view(-1, 1).tile(1, 2*rad[0]+1)
+    kernel = kernel / (ds + 1e-6)
+
+    return kernel
+
+def sobel_y_kernel(rad):
+    dxs = torch.arange(-rad[0], rad[0]+1)
+    dys = torch.arange(-rad[1], rad[1]+1)
+
+    dxs, dys = torch.meshgrid(dxs, dys, indexing='ij')
+    ds = dxs**2 + dys**2
+
+    kernel = torch.arange(-rad[0], rad[0]+1).view(1, -1).tile(2*rad[1]+1, 1)
+    kernel = kernel / (ds + 1e-6)
+
+    return kernel
 
 def apply_kernel(kernel, data, pad_mode='constant', pad_value=0.):
     """
