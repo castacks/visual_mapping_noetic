@@ -15,15 +15,19 @@ class Dinov2Block(ImageProcessingBlock):
     """
 
     def __init__(
-        self, dino_type, dino_layer, image_insize, desc_facet, device, models_dir
+        self, dino_type, dino_layers, image_insize, desc_facet, device, models_dir
     ):
         torch.hub.set_dir(os.path.join(models_dir, "torch_hub"))
-        dino_dir = os.path.join(models_dir, "torch_hub", "facebookresearch_dinov2_main")
+
+        if "dino" in dino_type:
+            dino_dir = os.path.join(models_dir, "torch_hub", "facebookresearch_dinov2_main")
+        elif "radio" in dino_type:
+            dino_dir = os.path.join(models_dir, "torch_hub", "NVlabs_RADIO_main")
 
         self.dino = DinoV2ExtractFeatures(
             dino_dir,
             dino_model=dino_type,
-            layer=dino_layer,
+            layers=dino_layers,
             input_size=image_insize,
             facet=desc_facet,
             device=device,
