@@ -1,0 +1,63 @@
+models_dir: /home/tartandriver/tartandriver_ws/models #necessary to include this for non-ROS offline proc
+
+image:
+    image_topic: /multisense/left/image_rect_color
+    camera_info_topic: /multisense/left/camera_info
+    image_compressed: False
+    folder: image_left_color
+
+pointcloud:
+   topic: /superodometry/velodyne_cloud_registered
+   folder: super_odometry_pc
+
+odometry:
+    topic: /superodometry/integrated_to_init
+    folder: odom
+
+gridmap:
+    topic: local_gridmap
+    folder: local_gridmap
+    
+device: cuda
+
+#distance from pose to ground in z
+z_offset: -1.7
+
+#IMPORTANT: we're not passing through MPC here. Footprint will thus be w.r.t. the LiDAR
+footprint:
+    params:
+        length: 4.0
+        width: 2.0
+          
+        #displacement to get to the center of the footprint from the center of the rear axle
+        length_offset: -1.2
+        width_offset: 0.0
+        
+        nl: 100
+        nw: 75
+
+#camera intrinsics
+intrinsics:
+    K: [455.7750, 0., 497.1180, 0., 456.3191, 251.8580, 0., 0., 1.]
+    P: [455.7750, 0., 497.1180, 0., 456.3191, 251.8580, 0., 0., 1.]
+
+#transform from the vehicle link to the camera link
+extrinsics:
+    p: [0.17265, -0.15227, 0.05708]
+    q: [0.55940, -0.54718, 0.44603, 0.43442]
+
+#build depth image from voxel grid/point cloud (no stereo depth)
+occlusion_sensor_model:
+    type: generic
+
+    n_el: 180 #number of bins
+    el_range: [-45., 45.] #min/max angle
+    el_thresh: default #optional arg to filter based on remainder
+
+    n_az: 180
+    az_range: [-45., 45.]
+    az_thresh: default
+
+#consider a point occluded if its depth is this thresh more than min
+occlusion_thresh: 1.0
+occlusion_frac: 0.9
