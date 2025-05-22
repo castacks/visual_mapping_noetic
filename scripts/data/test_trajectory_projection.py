@@ -7,6 +7,7 @@ import numpy as np
 import argparse
 import matplotlib.pyplot as plt
 
+from sam2.sam2_image_predictor import SAM2ImagePredictor
 
 from tartandriver_utils.geometry_utils import TrajectoryInterpolator
 
@@ -33,6 +34,9 @@ if __name__ == "__main__":
 
     config = yaml.safe_load(open(args.config, "r"))
     print(config)
+
+    ##set up SAM2
+    sam2 = SAM2ImagePredictor.from_pretrained("facebook/sam2-hiera-large")
 
     ## get extrinsics and intrinsics
     lidar_to_cam = np.concatenate(
@@ -213,6 +217,9 @@ if __name__ == "__main__":
             #     pts = transform_points(footprint.clone(), htm)
             #     footprint_pts.append(pts)
 
+            if len(footprint_pts_in_origin) == 0:
+                continue
+
             footprint_pts_in_origin = torch.cat(footprint_pts_in_origin, dim=0)
 
             footprint_pcl = footprint_pts_in_origin.clone()
@@ -234,21 +241,87 @@ if __name__ == "__main__":
             )
 
             footprint_pcl_px_in_frame = footprint_pcl_pixel_coords[ind_in_frame]
+
+            #convert to mask
+            traj_mask_px = torch.unique(footprint_pcl_px_in_frame.long(), dim=0)
+            
+            #temp hack for veh mask
+            traj_mask_px = traj_mask_px[traj_mask_px[:, 1] < 490]
+
+            if traj_mask_px.shape[0] == 0:
+                continue
+
+            traj_mask = torch.zeros(img.shape[0], img.shape[1], dtype=torch.bool)
+            traj_mask[traj_mask_px[..., 1], traj_mask_px[..., 0]] = True
+            traj_mask_viz = torch.stack([
+                torch.zeros_like(traj_mask).float(),
+                torch.zeros_like(traj_mask).float(),
+                torch.zeros_like(traj_mask).float(),
+                1. - torch.ones_like(traj_mask).float(),
+            ])
+
+            ## SAM Query
+            npq = 20
+            pos_query_idxs = torch.randint(traj_mask_px.shape[0], size=(npq, ))
+            pos_query_px = traj_mask_px[pos_query_idxs].cpu().numpy()
+            pos_query_label = np.ones(pos_query_px.shape[0], dtype=np.int64)
+
+            #hack2: use vehicle px as negative examples
+            nnq = 5
+            neg_query_px = np.stack([
+                np.linspace(300, 750, nnq),
+                520 + 20 * np.random.rand(nnq)
+            ], axis=-1).astype(np.int64)
+            neg_query_label = np.zeros(nnq, dtype=np.int64)
+
+            query_px = np.concatenate([pos_query_px, neg_query_px], axis=0)
+            query_label = np.concatenate([pos_query_label, neg_query_label])
+
             footprint_pcl_dists = footprint_pcl_dists[ind_in_frame]
             pc_z = (footprint_pcl_dists / footprint_pcl_dists.max()).cpu().numpy()
 
             rand_idxs = torch.randint(footprint_pcl_px_in_frame.shape[0], size=(10000, ))
 
-            fig, axs = plt.subplots(1, 2, figsize=(40, 24))
+            with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
+                sam2.set_image((img*255.).astype(np.uint8))
+                masks, scores, logits = sam2.predict(
+                    point_coords = query_px,
+                    point_labels = query_label,
+                    multimask_output = True
+                )
+
+                masks_viz = []
+                for i, mask in enumerate(masks):
+                    mask_viz = np.concatenate([np.zeros_like(img), mask.reshape(*mask.shape, 1)], axis=-1)
+                    mask_viz[..., i] = 1.
+                    masks_viz.append(mask_viz)
+
+            fig, axs = plt.subplots(2, 3, figsize=(24, 24))
             axs = axs.flatten()
 
-            axs[0].imshow(img)
+            for ax in axs:
+                ax.imshow(img)
 
-            axs[1].imshow(img)
+            #traj pts
             axs[1].scatter(
                 footprint_pcl_px_in_frame[rand_idxs, 0].cpu(),
                 footprint_pcl_px_in_frame[rand_idxs, 1].cpu(),
                 c=pc_z[rand_idxs], s=1., alpha=0.5, cmap='jet'
             )
+
+            #mask and query pts
+            axs[2].imshow(img)
+            axs[2].imshow(traj_mask, alpha=0.5, cmap='gray')
+            axs[2].scatter(pos_query_px[:, 0], pos_query_px[:, 1], c='g', s=2.)
+            axs[2].scatter(neg_query_px[:, 0], neg_query_px[:, 1], c='r', s=2.)
+
+            #SAM outputs
+            for i, (score, mask_viz) in enumerate(zip(scores, masks_viz)):
+                axs[3 + i].set_title("score: {:.2f} ".format(score))
+                axs[3 + i].imshow(mask_viz, alpha=0.5)
+
+            axs[0].set_title('image')
+            axs[1].set_title('traj pts')
+            axs[2].set_title('mask + query')
 
             plt.show()
