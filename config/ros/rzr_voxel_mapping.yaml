@@ -1,11 +1,12 @@
-models_dir: /home/tartandriver/tartandriver_ws/models #necessary to include this for non-ROS offline proc
+models_dir: /models #necessary to include this for non-ROS offline proc
 
 images:
     image_left:
-        image_topic: /multisense/left/image_rect_color
-        camera_info_topic: /multisense/left/camera_info
+        image_topic: /crl_rzr/multisense_left/aux/image_rect_color
+        camera_info_topic: /crl_rzr/multisense_left/aux/camera_info
         image_compressed: False
-        folder: image_left_color
+        folder: image_left
+        mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/left.png
 
         #camera intrinsics
         intrinsics:
@@ -18,10 +19,11 @@ images:
             q: [0.805, -0.212, 0.150, 0.534] #xyzw
         
     image_front:
-        image_topic: /multisense/left/image_rect_color
-        camera_info_topic: /multisense/left/camera_info
+        image_topic: /crl_rzr/multisense_front/aux/image_rect_color
+        camera_info_topic: /crl_rzr/multisense_front/aux/camera_info
         image_compressed: False
-        folder: image_front_color
+        folder: image_front
+        mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/front.png
 
        #camera intrinsics
         intrinsics:
@@ -34,10 +36,11 @@ images:
             q: [0.597, -0.593, 0.384, 0.380]  #xyzw
 
     image_right:
-        image_topic: /multisense/left/image_rect_color
-        camera_info_topic: /multisense/left/camera_info
+        image_topic: /crl_rzr/multisense_right/aux/image_rect_color
+        camera_info_topic: /crl_rzr/multisense_right/aux/camera_info
         image_compressed: False
-        folder: image_right_color
+        folder: image_right
+        mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/right.png
 
         #camera intrinsics
         intrinsics:
@@ -50,33 +53,35 @@ images:
             q: [-0.217, 0.812, -0.523, -0.144] #xyzw
 
 pointcloud:
-   topic: /superodometry/velodyne_cloud_registered
-   folder: merged_points_base
-
-odometry:
-    topic: /superodometry/integrated_to_init
-    folder: odom
+   topic: /crl_rzr/velodyne_merged_points
+   folder: pointcloud_in_vehicle
 
 #the base link of the vehicle (e.g. base_link, vehicle, etc.)
 vehicle_frame: crl_rzr/base_link
+
+#the fixed frame to map in
+mapping_frame: crl_rzr/map
 
 image_processing:
     -
         type: dino
         args:
-            dino_type: dinov2_vitb14_reg
-            dino_layers: [10]
-            image_insize: [854, 448]
+            # dino_type: dinov2_vitb14_reg
+            # dino_layers: [10]
+            # image_insize: [560, 448]
 
+            dino_type: radio_v2.5-b
+            dino_layers: [11]
+            image_insize: [640, 512]
+
+            # stride: 4
             desc_facet: value
 
     - 
         type: pca
         args:
-            # fp: physics_atv_visual_mapping/pca/radio_v2.5-b_64_renegade_ridge.pt
-            # fp: physics_atv_visual_mapping/pca/radio_v2.5b_64_gascola_20250124.pt
-            fp: physics_atv_visual_mapping/pca/vitb_reg_64_gascola_veg.pt
-            # fp: physics_atv_visual_mapping/pca/dino_vitl_multi_64_gascola_veg.pt
+            # fp: physics_atv_visual_mapping/pca/vitb_reg_64_gascola_veg.pt
+            fp: physics_atv_visual_mapping/pca/radio_64_trabuco_racer.pt
 
 # voxel
 localmapping:
@@ -90,7 +95,7 @@ localmapping:
         # resolution: [0.8, 0.8, 0.8]
         origin: [-50., -50., -10.]
         length: [100., 100., 20.]
-        resolution: [0.25, 0.25, 0.25]
+        resolution: [0.2, 0.2, 0.1]
         # origin: [-30., -30., -15.]
         # length: [60., 60., 30.]
         # resolution: [0.2, 0.2, 0.2]
@@ -197,5 +202,6 @@ terrain_estimation:
             terrain_mask_layer: min_elevation_filtered_inflated_mask
             overhang: 2.0
 
+rate: 0.2
 device: cuda
 viz: True

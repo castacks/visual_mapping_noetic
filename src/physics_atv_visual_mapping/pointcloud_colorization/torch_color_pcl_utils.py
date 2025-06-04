@@ -1,12 +1,9 @@
 import numpy as np
-import rclpy
 import torch
 
 # import matplotlib.pyplot as plt
 import cv2
-from functools import reduce
 import time
-import struct
 import std_msgs.msg
 from sensor_msgs.msg import PointCloud2, PointField, Image, CameraInfo
 from std_msgs.msg import Header

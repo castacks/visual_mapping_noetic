@@ -2,14 +2,43 @@ import torch
 import numpy as np
 from numpy import pi as PI
 
-np.float = np.float64  # hack for numpify
-import ros2_numpy
+np.float = np.float64 #hack for numpify
+import ros_numpy
 
 from scipy.spatial.transform import Rotation
 
 """
 collection of common geometry operations on poses, points, etc
 """
+
+def pcl_msg_to_xyz(pcl_msg):
+    pcl_np = ros_numpy.numpify(pcl_msg)
+    xyz = np.stack([
+        pcl_np['x'],
+        pcl_np['y'],
+        pcl_np['z']
+    ], axis=-1)
+
+    return torch.from_numpy(xyz).float()
+
+def pcl_msg_to_xyzrgb(pcl_msg):
+    pcl_np = ros_numpy.numpify(pcl_msg)
+    xyz = np.stack([
+        pcl_np['x'],
+        pcl_np['y'],
+        pcl_np['z']
+    ], axis=-1)
+
+    colors_raw = pcl_np['rgb']
+    red = ((colors_raw & 0x00FF0000)>>16)
+    green = ((colors_raw & 0x0000FF00)>>8)
+    blue = ((colors_raw & 0x000000FF)>>0)
+    colors = np.stack([red, green, blue], axis=-1)/255.
+
+    return torch.from_numpy(np.concatenate([
+        xyz,
+        colors
+    ], axis=-1)).float()
 
 DEG_2_RAD = PI/180.
 RAD_2_DEG = 180./PI
@@ -44,7 +73,7 @@ def tf_msg_to_htm(tf_msg):
         ]
     )
 
-    R = Rotation.from_quat(q).as_matrix()
+    R = Rotation.from_quat(q).as_dcm()
 
     htm = np.eye(4)
     htm[:3, :3] = R
@@ -53,33 +82,11 @@ def tf_msg_to_htm(tf_msg):
     return torch.from_numpy(htm).float()
 
 
-def pcl_msg_to_xyz(pcl_msg):
-    pcl_np = ros2_numpy.numpify(pcl_msg)
-    xyz = np.stack(
-        [pcl_np["x"].flatten(), pcl_np["y"].flatten(), pcl_np["z"].flatten()], axis=-1
-    )
-
-    return torch.from_numpy(xyz).float()
-
-
-def pcl_msg_to_xyzrgb(pcl_msg):
-    pcl_np = ros2_numpy.numpify(pcl_msg)
-    xyz = np.stack([pcl_np["x"], pcl_np["y"], pcl_np["z"]], axis=-1)
-
-    colors_raw = pcl_np["rgb"]
-    red = (colors_raw & 0x00FF0000) >> 16
-    green = (colors_raw & 0x0000FF00) >> 8
-    blue = (colors_raw & 0x000000FF) >> 0
-    colors = np.stack([red, green, blue], axis=-1) / 255.0
-
-    return torch.from_numpy(np.concatenate([xyz, colors], axis=-1)).float()
-
-
 def pose_to_htm(pose):
     p = pose[:3]
     q = pose[3:7]
 
-    R = Rotation.from_quat(q).as_matrix()
+    R = Rotation.from_quat(q).as_dcm()
 
     htm = np.eye(4)
     htm[:3, :3] = R

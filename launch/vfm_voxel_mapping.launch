@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+
+<launch>
+    <arg name="visual_mapping_config" default="rzr_voxel_mapping.yaml"/>
+    <group ns="/crl_rzr/vfm_voxel_mapping">
+        <node pkg="physics_atv_visual_mapping" type="voxel_localmapping.py" name="vfm_voxel_mapping" output="screen" required="true">
+            <param name="config_fp" value="$(find physics_atv_visual_mapping)/config/ros/$(arg visual_mapping_config)"/>
+        </node>
+    </group>
+</launch>

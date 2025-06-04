@@ -139,7 +139,7 @@ class DinoV2ExtractFeatures:
         )
         return img
 
-    @torch.compile
+    # @torch.compile
     def __call__(self, img: torch.Tensor) -> torch.Tensor:
         """
         Parameters:

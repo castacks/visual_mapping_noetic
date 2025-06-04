@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 from ros_torch_converter.datatypes.pointcloud import FeaturePointCloudTorch
 
-from tartandriver_utils.geometry_utils import TrajectoryInterpolator
+from physics_atv_visual_mapping.geometry_utils import TrajectoryInterpolator
 
 from physics_atv_visual_mapping.image_processing.image_pipeline import (
     setup_image_pipeline,
@@ -91,11 +91,11 @@ if __name__ == "__main__":
     pcl_dir = os.path.join(args.run_dir, config['pointcloud']['folder'])
     pcl_ts = np.loadtxt(os.path.join(pcl_dir, "timestamps.txt"))
 
-    for pcl_idx in range(len(pcl_ts))[500:]:
+    for pcl_idx in range(len(pcl_ts))[1000:]:
         pcl_fp = os.path.join(pcl_dir, "{:08d}.npy".format(pcl_idx))
         pcl_t = pcl_ts[pcl_idx]        
 
-        pose = traj_interp(pcl_t)
+        pose = traj_interp([pcl_t])[0]
         pose = pose_to_htm(pose).to(config["device"])
 
         pcl = torch.from_numpy(np.load(pcl_fp)).float().to(config["device"])
@@ -136,8 +136,8 @@ if __name__ == "__main__":
             img_t = img_ts[pcl_idx]
 
             # pre-multiply by the tf from pc odom to img odom
-            odom_pc_H = pose_to_htm(traj_interp(pcl_t)).to(config['device'])
-            odom_img_H = pose_to_htm(traj_interp(img_t)).to(config['device'])
+            odom_pc_H = pose_to_htm(traj_interp([pcl_t])[0]).to(config['device'])
+            odom_img_H = pose_to_htm(traj_interp([img_t])[0]).to(config['device'])
             pc_img_H = odom_img_H @ torch.linalg.inv(odom_pc_H)
             E = pc_img_H @ image_extrinsics[ii]
             I = feature_intrinsics[ii]
@@ -172,7 +172,7 @@ if __name__ == "__main__":
         print('mapping took  {:.4f}s'.format(t6-t5))
 
         ## viz code ##
-        if (pcl_idx+1) % 50 == 0:
+        if (pcl_idx+1) % 250 == 0:
             ## viz proj ##
             ni = len(images)
             nax = ni+2

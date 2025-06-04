@@ -1,64 +1,31 @@
-import rclpy
-from rclpy.node import Node
+import rospy
 import yaml
 import copy
 import numpy as np
 
 np.float = np.float64  # hack for numpify
 
+import ros_numpy
 import tf2_ros
 import torch
 import cv_bridge
-import os
 
 from std_msgs.msg import Float32, Float32MultiArray, MultiArrayDimension
-from sensor_msgs.msg import PointCloud2, Image, CompressedImage
+from sensor_msgs.msg import PointCloud2, Image
 from nav_msgs.msg import Odometry
 from grid_map_msgs.msg import GridMap
-from perception_interfaces.msg import FeatureVoxelGrid
 
-from physics_atv_visual_mapping.image_processing.image_pipeline import (
-    setup_image_pipeline,
-)
+from ros_torch_converter.datatypes.pointcloud import FeaturePointCloudTorch
+
+from physics_atv_visual_mapping.image_processing.image_pipeline import setup_image_pipeline
 from physics_atv_visual_mapping.pointcloud_colorization.torch_color_pcl_utils import *
 from physics_atv_visual_mapping.terrain_estimation.terrain_estimation_pipeline import setup_terrain_estimation_pipeline
-
-from physics_atv_visual_mapping.localmapping.bev.bev_localmapper import BEVLocalMapper
-from physics_atv_visual_mapping.localmapping.voxel.voxel_localmapper import (
-    VoxelLocalMapper,
-)
+from physics_atv_visual_mapping.localmapping.voxel.voxel_localmapper import VoxelLocalMapper
 from physics_atv_visual_mapping.localmapping.metadata import LocalMapperMetadata
-
 from physics_atv_visual_mapping.utils import *
 
-
-class VoxelMappingNode(Node):
-    def __init__(self):
-        super().__init__("visual_mapping")
-
-        self.declare_parameter("config_fp", "")
-        self.declare_parameter("models_dir", "")
-
-        self.get_logger().info(
-            "Looking for models in {}".format(
-                self.get_parameter("models_dir").get_parameter_value().string_value
-            )
-        )
-
-        config_fp = self.get_parameter("config_fp").get_parameter_value().string_value
-        config = yaml.safe_load(open(config_fp, "r"))
-        config["models_dir"] = (
-            self.get_parameter("models_dir").get_parameter_value().string_value
-        )
-
-        self.vehicle_frame = config["vehicle_frame"]
-
-        self.localmap = None
-        self.pcl_msg = None
-        self.odom_msg = None
-        self.img_msg = None
-        self.odom_frame = None
-
+class VoxelMappingNode:
+    def __init__(self, config):
         self.device = config["device"]
         self.base_metadata = config["localmapping"]["metadata"]
         self.localmap_ema = config["localmapping"]["ema"]
@@ -75,68 +42,55 @@ class VoxelMappingNode(Node):
         self.last_update_time = 0.0
 
         self.image_pipeline = setup_image_pipeline(config)
-
         self.setup_localmapper(config)
-
         self.do_terrain_estimation = "terrain_estimation" in config.keys()
         if self.do_terrain_estimation:
-            self.get_logger().info("doing terrain estimation")
+            rospy.loginfo("doing terrain estimation")
             self.terrain_estimator = setup_terrain_estimation_pipeline(config)
 
-        self.tf_buffer = tf2_ros.Buffer()
-        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
+        self.vehicle_frame = config['vehicle_frame']
+        self.mapping_frame = config['mapping_frame']
 
+        self.tf_buffer = tf2_ros.Buffer()
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         self.bridge = cv_bridge.CvBridge()
 
-        self.compressed_img = config["image"]["image_compressed"]
-        if self.compressed_img:
-            self.image_sub = self.create_subscription(
-                CompressedImage, config["image"]["image_topic"], self.handle_img, 1
-            )
-        else:
-            self.image_sub = self.create_subscription(
-                Image, config["image"]["image_topic"], self.handle_img, 1
-            )
+        self.setup_ros_interface(config)
 
-        self.intrinsics = (
-            torch.tensor(config["intrinsics"]["P"], device=config["device"])
-            .reshape(3, 3)
-            .float()
-        )
-        self.dino_intrinsics = None
+        self.timer = rospy.Timer(rospy.Duration(config['rate']), self.spin)
 
-        self.extrinsics = pose_to_htm(
-            np.concatenate(
-                [
-                    np.array(config["extrinsics"]["p"]),
-                    np.array(config["extrinsics"]["q"]),
-                ],
-                axis=-1,
-            )
-        )
+    def setup_ros_interface(self, config):
+        #guarantee images in same order
+        self.image_keys = []
+        self.image_data = {}
+        self.image_pubs = {}
+        self.image_subs = {}
 
-        self.pcl_sub = self.create_subscription(
-            PointCloud2, config["pointcloud"]["topic"], self.handle_pointcloud, 10
-        )
-        self.odom_sub = self.create_subscription(
-            Odometry, config["odometry"]["topic"], self.handle_odom, 10
-        )
+        self.pcl_msg = None
 
-        self.pcl_pub = self.create_publisher(PointCloud2, "/dino_pcl", 10)
-        self.image_pub = self.create_publisher(Image, "/dino_image", 10)
+        for img_key, img_conf in config['images'].items():
+            self.image_data[img_key] = {}
+            self.image_keys.append(img_key)
 
-        self.voxel_pub = self.create_publisher(FeatureVoxelGrid, "/dino_voxels", 10)
-        self.voxel_viz_pub = self.create_publisher(
-            PointCloud2, "/dino_voxels_viz", 1
-        )
+            self.image_data[img_key]['intrinsics'] = get_intrinsics(np.array(img_conf["intrinsics"]["P"]).reshape(3, 3)).float().to(self.device)
+            self.image_data[img_key]['extrinsics'] = pose_to_htm(np.concatenate(
+                    [
+                        np.array(img_conf["extrinsics"]["p"]),
+                        np.array(img_conf["extrinsics"]["q"]),
+                    ], axis=-1,)).to(self.device)
+            self.image_data[img_key]['message'] = None
 
-        if self.do_terrain_estimation:
-            self.gridmap_pub = self.create_publisher(GridMap, "/dino_gridmap", 10)
+            self.image_subs[img_key] = rospy.Subscriber(img_conf['image_topic'], Image, self.handle_img, callback_args=img_key)
+            self.image_pubs[img_key] = rospy.Publisher("feature_images/{}".format(img_key), Image)
 
-        self.timing_pub = self.create_publisher(Float32, "/dino_proc_time", 10)
+        self.pcl_sub = rospy.Subscriber(config["pointcloud"]["topic"], PointCloud2, self.handle_pointcloud)
 
-        self.timer = self.create_timer(0.2, self.spin)
-        self.viz = config["viz"]
+        self.pcl_pub = rospy.Publisher("feature_pc", PointCloud2)
+        self.voxel_pub = rospy.Publisher("feature_voxels", PointCloud2)
+
+        # self.odom_sub = rospy.Subscriber(config["odometry"]["topic"], Odometry, self.handle_odom, 10)
+
+        # self.timing_pub = self.create_publisher(Float32, "/dino_proc_time", 10)
 
     def setup_localmapper(self, config):
         """
@@ -162,41 +116,39 @@ class VoxelMappingNode(Node):
         return out
 
     def handle_pointcloud(self, msg):
+        # rospy.loginfo('handling pointcloud')
         self.pcl_msg = msg
 
-    def handle_odom(self, msg):
-        if self.odom_frame is None:
-            self.odom_frame = msg.header.frame_id
-        self.odom_msg = msg
+    # def handle_odom(self, msg):
+    #     rospy.loginfo('handling odom')
+    #     if self.odom_frame is None:
+    #         self.odom_frame = msg.header.frame_id
+    #     self.odom_msg = msg
 
-    def handle_img(self, msg):
-        self.img_msg = msg
+    def handle_img(self, msg, img_key):
+        # rospy.loginfo('handling img {}'.format(img_key))
+        self.image_data[img_key]['message'] = msg
 
     def preprocess_inputs(self):
         if self.pcl_msg is None:
-            self.get_logger().warn("no pcl msg received")
+            rospy.logwarn("no pcl msg received")
             return None
 
-        pcl_time = (
-            self.pcl_msg.header.stamp.sec + self.pcl_msg.header.stamp.nanosec * 1e-9
-        )
+        pcl_time = self.pcl_msg.header.stamp.to_sec()
         if abs(pcl_time - self.last_update_time) < 1e-3:
             return None
 
-        if self.odom_msg is None:
-            self.get_logger().warn("no odom msg received")
-            return None
-
-        if self.img_msg is None:
-            self.get_logger().warn("no img msg received")
-            return None
+        for img_key, img_data in self.image_data.items():
+            if img_data['message'] is None:
+                rospy.logwarn("no {} msg received".format(img_key))
+                return None
 
         if not self.tf_buffer.can_transform(
             self.vehicle_frame,
             self.pcl_msg.header.frame_id,
-            rclpy.time.Time.from_msg(self.pcl_msg.header.stamp),
+            self.pcl_msg.header.stamp,
         ):
-            self.get_logger().warn(
+            rospy.logwarn(
                 "cant tf from {} to {} at {}".format(
                     self.vehicle_frame,
                     self.pcl_msg.header.frame_id,
@@ -208,17 +160,17 @@ class VoxelMappingNode(Node):
         tf_vehicle_to_pcl_msg = self.tf_buffer.lookup_transform(
             self.vehicle_frame,
             self.pcl_msg.header.frame_id,
-            rclpy.time.Time.from_msg(self.pcl_msg.header.stamp),
+            self.pcl_msg.header.stamp,
         )
 
         if not self.tf_buffer.can_transform(
-            self.odom_frame,
+            self.mapping_frame,
             self.pcl_msg.header.frame_id,
-            rclpy.time.Time.from_msg(self.pcl_msg.header.stamp),
+            self.pcl_msg.header.stamp,
         ):
-            self.get_logger().warn(
+            rospy.logwarn(
                 "cant tf from {} to {} at {}".format(
-                    self.odom_frame,
+                    self.mapping_frame,
                     self.pcl_msg.header.frame_id,
                     self.pcl_msg.header.stamp,
                 )
@@ -226,87 +178,74 @@ class VoxelMappingNode(Node):
             return None
 
         tf_odom_to_pcl_msg = self.tf_buffer.lookup_transform(
-            self.odom_frame,
+            self.mapping_frame,
             self.pcl_msg.header.frame_id,
-            rclpy.time.Time.from_msg(self.pcl_msg.header.stamp),
+            self.pcl_msg.header.stamp,
         )
         
         pcl = pcl_msg_to_xyz(self.pcl_msg).to(self.device)
 
         vehicle_to_pcl_htm = tf_msg_to_htm(tf_vehicle_to_pcl_msg).to(self.device)
+
         pcl_in_vehicle = transform_points(pcl.clone(), vehicle_to_pcl_htm)
 
         odom_to_pcl_htm = tf_msg_to_htm(tf_odom_to_pcl_msg).to(self.device)
         pcl_in_odom = transform_points(pcl.clone(), odom_to_pcl_htm)
 
+        odom_to_vehicle_htm = odom_to_pcl_htm @ torch.linalg.inv(vehicle_to_pcl_htm)
+
         self.last_update_time = pcl_time
 
         # Camera processing
-        if self.compressed_img:
+        images = []
+        image_intrinsics = []
+        image_extrinsics = []
+
+        for img_key in self.image_keys:
             img = (
-                self.bridge.compressed_imgmsg_to_cv2(
-                    self.img_msg, desired_encoding="rgb8"
-                )
-                / 255.0
-            )
-        else:
-            img = (
-                self.bridge.imgmsg_to_cv2(self.img_msg, desired_encoding="rgb8").astype(
+                self.bridge.imgmsg_to_cv2(self.image_data[img_key]['message'], desired_encoding="rgb8").astype(
                     np.float32
                 )
                 / 255.0
             )
+            img = torch.tensor(img).unsqueeze(0).permute(0, 3, 1, 2).to(self.device)
 
-        img = torch.tensor(img).unsqueeze(0).permute(0, 3, 1, 2)
+            images.append(img)
+            image_intrinsics.append(self.image_data[img_key]['intrinsics'])
+            image_extrinsics.append(self.image_data[img_key]['extrinsics'])
 
-        dino_img, dino_intrinsics = self.image_pipeline.run(
-            img, self.intrinsics.unsqueeze(0)
-        )
-        # dino_img = img.to(self.device)
-        # dino_intrinsics = self.intrinsics.unsqueeze(0).to(self.device)
-        dino_img = dino_img[0].permute(1, 2, 0)
-        dino_intrinsics = dino_intrinsics[0]
+        images = torch.cat(images, dim=0)
+        image_intrinsics = torch.stack(image_intrinsics, dim=0)
+        image_extrinsics = torch.stack(image_extrinsics, dim=0)
 
-        I = get_intrinsics(dino_intrinsics).to(self.device)
-        E = get_extrinsics(self.extrinsics).to(self.device)
-        P = obtain_projection_matrix(I, E)
-
-        pixel_coordinates = get_pixel_from_3D_source(pcl_in_vehicle[:, :3], P)
-        (
-            lidar_points_in_frame,
-            pixels_in_frame,
-            ind_in_frame,
-        ) = get_points_and_pixels_in_frame(
-            pcl_in_vehicle[:, :3], pixel_coordinates, dino_img.shape[0], dino_img.shape[1]
+        feature_images, feature_intrinsics = self.image_pipeline.run(
+            images, image_intrinsics
         )
 
-        dino_features = dino_img[pixels_in_frame[:, 1], pixels_in_frame[:, 0]]
-        dino_pcl = torch.cat([pcl_in_odom[ind_in_frame][:, :3], dino_features], dim=-1)
+        feature_images = feature_images.permute(0, 2, 3, 1)
+        image_Ps = get_projection_matrix(feature_intrinsics, image_extrinsics)
 
-        pos = torch.tensor(
-            [
-                self.odom_msg.pose.pose.position.x,
-                self.odom_msg.pose.pose.position.y,
-                self.odom_msg.pose.pose.position.z,
-            ],
-            device=self.device,
-        )
+        coords, valid_mask = get_pixel_projection(pcl_in_vehicle, image_Ps, feature_images)
+        pc_features, cnt = colorize(coords, valid_mask, feature_images)
+        pc_features = pc_features[cnt > 0]
+        feature_pcl = FeaturePointCloudTorch.from_torch(pts=pcl_in_odom, features=pc_features, mask=(cnt > 0))
 
-        self.get_logger().info('colorized {}/{} points'.format(dino_pcl.shape[0], pcl_in_vehicle.shape[0]))
+        pos = odom_to_vehicle_htm[:3, -1]
+
+        rospy.loginfo('colorized {}/{} points'.format(feature_pcl.features.shape[0], feature_pcl.pts.shape[0]))
 
         return {
             "pos": pos,
             "pcl": pcl_in_odom,
-            "image": img,
-            "dino_image": dino_img,
-            "dino_pcl": dino_pcl,
-            "pixel_projection": pixel_coordinates[ind_in_frame],
+            "images": images,
+            "feature_images": feature_images,
+            "feature_pc": feature_pcl,
         }
 
     def make_voxel_msg(self, voxel_grid):
         msg = FeatureVoxelGrid()
         msg.header.stamp = self.pcl_msg.header.stamp
-        msg.header.frame_id = self.odom_frame
+        msg.header.frame_id = self.mapping_frame
 
         msg.metadata.origin.x = voxel_grid.metadata.origin[0].item()
         msg.metadata.origin.y = voxel_grid.metadata.origin[1].item()
@@ -429,7 +368,7 @@ class VoxelMappingNode(Node):
 
             # gridmap_layer_msg.data = flipped_layer_data[i].flatten().tolist()
             gridmap_msg.data.append(gridmap_layer_msg)
-        self.get_logger().info("time to flatten layer {}: {}".format(i, accum_time))
+        rospy.loginfo("time to flatten layer {}: {}".format(i, accum_time))
         # add dummy elevation
         gridmap_msg.layers.append("elevation")
         layer_data = (
@@ -458,15 +397,23 @@ class VoxelMappingNode(Node):
 
         return gridmap_msg
 
+    def make_voxel_viz_msg(self, voxel_grid):
+        pts = voxel_grid.grid_indices_to_pts(voxel_grid.raster_indices_to_grid_indices(voxel_grid.raster_indices))
+        feats = voxel_grid.features
+        mask = voxel_grid.feature_mask
+
+        fpc = FeaturePointCloudTorch.from_torch(pts=pts, features=feats, mask=mask)
+
+        return self.make_pcl_msg(fpc)
+
     def make_pcl_msg(self, pcl, vmin=None, vmax=None):
         """
         Convert dino pcl into message
         """
-        self.get_logger().info("{}".format(pcl.shape))
         start_time = time.time()
-        pcl_pos = pcl[:, :3].cpu().numpy()
+        pcl_pos = pcl.pts[pcl.feat_mask].cpu().numpy()
 
-        pcl_cs = pcl[:, 3:6]
+        pcl_cs = pcl.features[:, :3]
         if vmin is None or vmax is None:
             vmin = pcl_cs.min(dim=0)[0].view(1, 3)
             vmax = pcl_cs.max(dim=0)[0].view(1, 3)
@@ -479,34 +426,13 @@ class VoxelMappingNode(Node):
 
         points = pcl_pos
         rgb_values = (pcl_cs * 255.0).astype(np.uint8)
-        # Prepare the data array with XYZ and RGB
-        xyzcolor = np.zeros(
-            points.shape[0],
-            dtype=[
-                ("x", np.float32),
-                ("y", np.float32),
-                ("z", np.float32),
-                ("rgb", np.float32),
-            ],
+
+        msg = self.xyz_array_to_point_cloud_msg(
+            points=pcl_pos,
+            frame=self.mapping_frame,
+            timestamp=self.pcl_msg.header.stamp,
+            rgb_values=rgb_values
         )
-
-        # Assign XYZ values
-        xyzcolor["x"] = points[:, 0]
-        xyzcolor["y"] = points[:, 1]
-        xyzcolor["z"] = points[:, 2]
-
-        color = np.zeros(
-            points.shape[0], dtype=[("r", np.uint8), ("g", np.uint8), ("b", np.uint8)]
-        )
-        color["r"] = rgb_values[:, 0]
-        color["g"] = rgb_values[:, 1]
-        color["b"] = rgb_values[:, 2]
-        xyzcolor["rgb"] = ros2_numpy.point_cloud2.merge_rgb_fields(color)
-
-        msg = ros2_numpy.msgify(PointCloud2, xyzcolor)
-        msg.header.frame_id = self.odom_frame
-        msg.header.stamp = self.pcl_msg.header.stamp
-        self.get_logger().info("pcl total time: {}".format(time.time() - start_time))
 
         return msg
 
@@ -524,8 +450,6 @@ class VoxelMappingNode(Node):
         # Create the message header
         header = Header()
         header.frame_id = frame
-        if timestamp is None:
-            timestamp = self.get_clock().now().to_msg()  # ROS2 time function
         header.stamp = timestamp
 
         msg = PointCloud2()
@@ -593,7 +517,7 @@ class VoxelMappingNode(Node):
 
         return msg
     
-    def make_img_msg(self, dino_img, vmin=None, vmax=None):
+    def make_img_msg(self, dino_img, img_key, vmin=None, vmax=None):
         if vmin is None or vmax is None:
             viz_img = normalize_dino(dino_img[..., :3])
         else:
@@ -604,7 +528,7 @@ class VoxelMappingNode(Node):
 
         viz_img = viz_img.cpu().numpy() * 255
         img_msg = self.bridge.cv2_to_imgmsg(viz_img.astype(np.uint8), "rgb8")
-        img_msg.header.stamp = self.img_msg.header.stamp
+        img_msg.header.stamp = self.image_data[img_key]['message'].header.stamp
         return img_msg
 
     def publish_messages(self, res):
@@ -653,60 +577,60 @@ class VoxelMappingNode(Node):
         timing_msg = Float32()
         self.timing_pub.publish(timing_msg)
 
-    def spin(self):
-        self.get_logger().info("spinning...")
+    def spin(self, event):
+        rospy.loginfo("spinning...")
 
-        start_time = time.time()
+        preproc_start_time = time.time()
         res = self.preprocess_inputs()
-        after_preprocess_time = time.time()
+        preproc_end_time = time.time()
+
         if res:
-            self.get_logger().info("updating localmap...")
+            rospy.loginfo("updating localmap...")
 
-            pts = res["dino_pcl"][:, :3]
-            features = res["dino_pcl"][:, 3:]
-
-            self.get_logger().info(
-                "Got {} features, mapping first {}".format(
-                    features.shape[-1], self.localmapper.n_features
-                )
-            )
-
-            self.get_logger().info(str(res.keys()))
-
+            update_start_time = time.time()
             self.localmapper.update_pose(res["pos"])
             self.localmapper.add_feature_pc(
-                pts=pts, features=features[:, : self.localmapper.n_features]
+                pos=res['pos'], feat_pc=res["feature_pc"], do_raytrace=True
             )
-            self.localmapper.add_pc(res["pcl"][:, :3])
 
             if self.do_terrain_estimation:
                 self.bev_grid = self.terrain_estimator.run(self.localmapper.voxel_grid)
 
-            after_update_time = time.time()
-            self.publish_messages(res)
-            after_publish_time = time.time()
+            update_end_time = time.time()
 
-            self.get_logger().info(
-                "preprocess time: {}".format(after_preprocess_time - start_time)
+            pub_start_time = time.time()
+            msg = self.make_pcl_msg(res['feature_pc'])
+            self.pcl_pub.publish(msg)
+
+            msg = self.make_voxel_viz_msg(self.localmapper.voxel_grid)
+            self.voxel_pub.publish(msg)
+
+            for i, img_key in enumerate(self.image_keys):
+                feat_img = res["feature_images"][i]
+                pub = self.image_pubs[img_key]
+                msg = self.make_img_msg(feat_img, img_key)
+                pub.publish(msg)
+
+            pub_end_time = time.time()
+
+            rospy.loginfo(
+                "preprocess time: {}".format(preproc_end_time - preproc_start_time)
             )
-            self.get_logger().info(
-                "update time: {}".format(after_update_time - start_time)
+            rospy.loginfo(
+                "update time: {}".format(update_end_time - update_start_time)
             )
-            self.get_logger().info(
-                "publish time: {}".format(after_publish_time - after_update_time)
+            rospy.loginfo(
+                "publish time: {}".format(pub_end_time - pub_start_time)
             )
-            self.get_logger().info("total time: {}".format(time.time() - start_time))
+            rospy.loginfo("total time: {}".format(time.time() - preproc_start_time))
 
+if __name__ == '__main__':
+    rospy.init_node('visual_mapping')
 
-def main(args=None):
-    rclpy.init(args=args)
+    # config_fp = rospy.get_param("~config_fp")
 
-    visual_mapping_node = VoxelMappingNode()
-    rclpy.spin(visual_mapping_node)
+    config_fp = '/catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/config/ros/rzr_voxel_mapping.yaml'
+    config = yaml.safe_load(open(config_fp, 'r'))
 
-    visual_mapping_node.destroy_node()
-    rclpy.shutdown()
-
-
-if __name__ == "__main__":
-    main()
+    visual_mapping_node = VoxelMappingNode(config)
+    rospy.spin()
