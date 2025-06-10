@@ -23,6 +23,7 @@ from physics_atv_visual_mapping.terrain_estimation.terrain_estimation_pipeline i
 from physics_atv_visual_mapping.localmapping.voxel.voxel_localmapper import VoxelLocalMapper
 from physics_atv_visual_mapping.localmapping.metadata import LocalMapperMetadata
 from physics_atv_visual_mapping.utils import *
+import time
 
 class VoxelMappingNode:
     def __init__(self, config):
@@ -143,46 +144,37 @@ class VoxelMappingNode:
                 rospy.logwarn("no {} msg received".format(img_key))
                 return None
 
-        if not self.tf_buffer.can_transform(
-            self.vehicle_frame,
-            self.pcl_msg.header.frame_id,
-            self.pcl_msg.header.stamp,
-        ):
-            rospy.logwarn(
-                "cant tf from {} to {} at {}".format(
-                    self.vehicle_frame,
-                    self.pcl_msg.header.frame_id,
-                    self.pcl_msg.header.stamp,
-                )
+        # need to wait for tf to be available
+        try:
+            tf_vehicle_to_pcl_msg = self.tf_buffer.lookup_transform(
+                self.vehicle_frame,
+                self.pcl_msg.header.frame_id,
+                self.pcl_msg.header.stamp,
+                timeout=rospy.Duration(0.1)
             )
+        except (tf2_ros.TransformException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn("cant tf from {} to {} at {}".format(
+                self.vehicle_frame,
+                self.pcl_msg.header.frame_id,
+                self.pcl_msg.header.stamp,
+            ))
             return None
 
-        tf_vehicle_to_pcl_msg = self.tf_buffer.lookup_transform(
-            self.vehicle_frame,
-            self.pcl_msg.header.frame_id,
-            self.pcl_msg.header.stamp,
-        )
-
-        if not self.tf_buffer.can_transform(
-            self.mapping_frame,
-            self.pcl_msg.header.frame_id,
-            self.pcl_msg.header.stamp,
-        ):
-            rospy.logwarn(
-                "cant tf from {} to {} at {}".format(
-                    self.mapping_frame,
-                    self.pcl_msg.header.frame_id,
-                    self.pcl_msg.header.stamp,
-                )
+        try:
+            tf_odom_to_pcl_msg = self.tf_buffer.lookup_transform(
+                self.mapping_frame,
+                self.pcl_msg.header.frame_id,
+                self.pcl_msg.header.stamp,
+                timeout=rospy.Duration(0.1)
             )
+        except (tf2_ros.TransformException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn("cant tf from {} to {} at {}".format(
+                self.mapping_frame,
+                self.pcl_msg.header.frame_id,
+                self.pcl_msg.header.stamp,
+            ))
             return None
 
-        tf_odom_to_pcl_msg = self.tf_buffer.lookup_transform(
-            self.mapping_frame,
-            self.pcl_msg.header.frame_id,
-            self.pcl_msg.header.stamp,
-        )
-        
         pcl = pcl_msg_to_xyz(self.pcl_msg).to(self.device)
 
         vehicle_to_pcl_htm = tf_msg_to_htm(tf_vehicle_to_pcl_msg).to(self.device)
