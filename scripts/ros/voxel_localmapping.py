@@ -525,13 +525,35 @@ class VoxelMappingNode:
                 score_voxel_grid.feature_mask = self.localmapper.voxel_grid.feature_mask.clone()
                 score_voxel_grid.features = score_feats
 
+                score_min = score_feats.min(dim=0)[0]
+                score_max = score_feats.max(dim=0)[0]
+
                 msg = self.make_voxel_viz_msg(score_voxel_grid)
                 self.voxel_pub.publish(msg)
+
+                for i, img_key in enumerate(self.image_keys):
+                    feat_img = res["feature_images"][i]
+                    #hack to remake pseudo det images
+
+                    n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
+                    pos_score = feat_img[..., :n_pos_ptypes].max(dim=-1)[0]
+                    neg_score = feat_img[..., n_pos_ptypes:].max(dim=-1)[0]
+                    score = pos_score - neg_score
+                    score_img = torch.stack([score] * 3, dim=-1)
+
+                    pub = self.image_pubs[img_key]
+                    msg = self.make_img_msg(score_img, img_key, vmin=score_min, vmax=score_max)
+                    pub.publish(msg)
 
             else:
                 msg = self.make_voxel_viz_msg(self.localmapper.voxel_grid)
                 self.voxel_pub.publish(msg)
 
+                for i, img_key in enumerate(self.image_keys):
+                    feat_img = res["feature_images"][i]
+                    pub = self.image_pubs[img_key]
+                    msg = self.make_img_msg(feat_img, img_key)
+                    pub.publish(msg)
 
             for i, img_key in enumerate(self.image_keys):
                 feat_img = res["feature_images"][i]
