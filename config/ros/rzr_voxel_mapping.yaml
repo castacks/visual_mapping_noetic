@@ -56,6 +56,13 @@ pointcloud:
    topic: /crl_rzr/velodyne_merged_points
    folder: pointcloud_in_vehicle
 
+#gridmap pub is bad in python so reduce number of layers
+gridmap_pub_keys:
+    - terrain
+    - cost
+    # - obstacle_max_csim
+    # - nonobstacle_max_csim
+
 #the base link of the vehicle (e.g. base_link, vehicle, etc.)
 vehicle_frame: crl_rzr/base_link
 
@@ -77,45 +84,32 @@ image_processing:
             # stride: 4
             desc_facet: value
 
-    - 
-        type: pca
+    # - 
+    #     type: pca
+    #     args:
+    #         # fp: physics_atv_visual_mapping/pca/vitb_reg_64_gascola_veg.pt
+    #         fp: physics_atv_visual_mapping/pca/radio_64_trabuco_racer.pt
+
+    -
+        type: traversability_prototypes
         args:
-            # fp: physics_atv_visual_mapping/pca/vitb_reg_64_gascola_veg.pt
-            fp: physics_atv_visual_mapping/pca/radio_64_trabuco_racer.pt
+            fp: physics_atv_visual_mapping/traversability_prototypes/trabuco_ptypes_test.pt
 
 # voxel
 localmapping:
     mapper_type: voxel
     layer_key: dino
     ema: 0.5 #higher->use recent more
-    n_features: 3
+    n_features: 8
     metadata:
-        # origin: [-100., -100., -30.]
-        # length: [200., 200., 60.]
-        # resolution: [0.8, 0.8, 0.8]
         origin: [-50., -50., -10.]
         length: [100., 100., 20.]
         resolution: [0.2, 0.2, 0.1]
-        # origin: [-30., -30., -15.]
-        # length: [60., 60., 30.]
-        # resolution: [0.2, 0.2, 0.2]
 
     raytracer:
         type: frustum
         sensor:
             type: VLP32C-front
-
-            # type: VLP32C
-        
-            # type: generic
-        
-            # n_el: 72 #number of bins
-            # el_range: [-25., 15.] #min/max angle
-            # el_thresh: default #optional arg to filter based on remainder
-
-            # n_az: 900
-            # az_range: [-180, 180.]
-            # az_thresh: default
 
 terrain_estimation:
     -
@@ -194,13 +188,22 @@ terrain_estimation:
         args:
             terrain_layer: terrain
             overhang: 2.0
+            
     -
         type: terrain_aware_bev_feature_splat
         args:
             output_key: dino
             terrain_layer: terrain
             terrain_mask_layer: min_elevation_filtered_inflated_mask
+            reduce: max
             overhang: 2.0
+
+    -
+        type: traversability_prototype_scores
+        args:
+            vfm_feature_key: dino #should match whatever's in the bev_feature_splat block
+            mask_key: num_voxels
+            prototype_fp: /models/physics_atv_visual_mapping/traversability_prototypes/trabuco_ptypes_test.pt
 
 rate: 0.2
 device: cuda
