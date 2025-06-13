@@ -41,6 +41,8 @@ class VoxelMappingNode:
             rospy.loginfo("doing terrain estimation")
             self.terrain_estimator = setup_terrain_estimation_pipeline(config)
 
+        self.do_proj_cleanup = config['do_proj_cleanup']
+
         self.vehicle_frame = config['vehicle_frame']
         self.mapping_frame = config['mapping_frame']
 
@@ -236,6 +238,11 @@ class VoxelMappingNode:
         image_Ps = get_projection_matrix(feature_intrinsics, image_extrinsics)
 
         coords, valid_mask = get_pixel_projection(pcl_in_vehicle, image_Ps, feature_images)
+
+        if self.do_proj_cleanup:
+            valid_mask2 = cleanup_projection(pcl_in_vehicle, coords, valid_mask, feature_images)
+            valid_mask = valid_mask & valid_mask2
+
         pc_features, cnt = colorize(coords, valid_mask, feature_images)
         pc_features = pc_features[cnt > 0]
         feature_pcl = FeaturePointCloudTorch.from_torch(pts=pcl_in_odom, features=pc_features, mask=(cnt > 0))

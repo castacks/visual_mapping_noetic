@@ -1,5 +1,7 @@
 models_dir: /models #necessary to include this for non-ROS offline proc
 
+do_proj_cleanup: true
+
 images:
     image_left:
         image_topic: /crl_rzr/multisense_left/aux/image_rect_color
