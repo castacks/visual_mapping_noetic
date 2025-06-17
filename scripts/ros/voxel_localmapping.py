@@ -37,9 +37,12 @@ class VoxelMappingNode:
         self.image_pipeline = setup_image_pipeline(config)
         self.setup_localmapper(config)
         self.do_terrain_estimation = "terrain_estimation" in config.keys()
+
         if self.do_terrain_estimation:
             rospy.loginfo("doing terrain estimation")
             self.terrain_estimator = setup_terrain_estimation_pipeline(config)
+
+        self.use_masks = any(["mask" in img_conf.keys() for img_conf in config["images"].values()])
 
         self.do_proj_cleanup = config['do_proj_cleanup']
 
@@ -68,6 +71,7 @@ class VoxelMappingNode:
         self.image_data = {}
         self.image_pubs = {}
         self.image_subs = {}
+        self.image_masks = []
 
         self.pcl_msg = None
 
@@ -86,6 +90,12 @@ class VoxelMappingNode:
             self.image_subs[img_key] = message_filters.Subscriber(img_conf['image_topic'], Image)
             self.image_pubs[img_key] = rospy.Publisher("feature_images/{}".format(img_key), Image, queue_size=10)
 
+            if self.use_masks:
+                rospy.loginfo("looking for {} mask at {}".format(img_key, img_conf["mask"]))
+                self.image_masks.append(self.get_mask(img_conf["mask"]))
+        
+        self.image_masks = torch.stack(self.image_masks, dim=0).unsqueeze(-1) #[BxHxWx1]
+
         self.pcl_sub = message_filters.Subscriber(config["pointcloud"]["topic"], PointCloud2)
 
         self.pcl_pub = rospy.Publisher("feature_pc", PointCloud2, queue_size=10)
@@ -97,6 +107,18 @@ class VoxelMappingNode:
 
         self.time_sync = message_filters.ApproximateTimeSynchronizer(subs, 10, slop=0.05)
         self.time_sync.registerCallback(self.handle_data)
+
+    def get_mask(self, mask_fp, size=(960, 594)):
+        """
+        Get mask from file. Note that since we batch-process, we need to resize masks
+        """
+        img_npy = cv2.imread(mask_fp)
+        img_npy_resize = cv2.resize(img_npy, size, interpolation=cv2.INTER_NEAREST) #best not to change values
+        img_torch = torch.tensor(img_npy_resize, device=self.device)
+        mask = img_torch[..., 0] == 0 #pixels to mask are black in png
+
+        rospy.loginfo("{} mask px".format(mask.sum()))
+        return mask
 
     def handle_data(self, pc_msg, img_left_msg, img_front_msg, img_right_msg):
         # logstr = "sync check:\n\tcurr time: {}".format(rospy.Time.now().to_sec())
@@ -238,6 +260,22 @@ class VoxelMappingNode:
         image_Ps = get_projection_matrix(feature_intrinsics, image_extrinsics)
 
         coords, valid_mask = get_pixel_projection(pcl_in_vehicle, image_Ps, feature_images)
+
+        if self.use_masks:
+            rx = self.image_masks.shape[2] / feature_images.shape[2]
+            ry = self.image_masks.shape[1] / feature_images.shape[1]
+
+            I_mask = feature_intrinsics.clone()
+            I_mask[:, 0] *= rx
+            I_mask[:, 1] *= ry
+            P_mask = get_projection_matrix(I_mask, image_extrinsics)
+
+            mask_coords, mask_valid_mask = get_pixel_projection(pcl_in_vehicle, P_mask, self.image_masks)
+            mask_feats, mask_cnt = colorize(mask_coords, mask_valid_mask, self.image_masks, bilinear_interpolation=False, reduce=False)
+
+            #find all point feats that are valid projections and land on the mask
+            is_masked = mask_valid_mask & mask_feats[..., 0]
+            valid_mask = valid_mask & ~is_masked
 
         if self.do_proj_cleanup:
             valid_mask2 = cleanup_projection(pcl_in_vehicle, coords, valid_mask, feature_images)
