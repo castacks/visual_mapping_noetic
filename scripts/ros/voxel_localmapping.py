@@ -1,6 +1,7 @@
 import rospy
 import yaml
 import copy
+import time
 import numpy as np
 
 np.float = np.float64  # hack for numpify
@@ -9,6 +10,7 @@ import ros_numpy
 import tf2_ros
 import torch
 import cv_bridge
+import message_filters
 
 from std_msgs.msg import Float32, Float32MultiArray, MultiArrayDimension
 from sensor_msgs.msg import PointCloud2, Image
@@ -20,26 +22,16 @@ from ros_torch_converter.datatypes.pointcloud import FeaturePointCloudTorch
 from physics_atv_visual_mapping.image_processing.image_pipeline import setup_image_pipeline
 from physics_atv_visual_mapping.pointcloud_colorization.torch_color_pcl_utils import *
 from physics_atv_visual_mapping.terrain_estimation.terrain_estimation_pipeline import setup_terrain_estimation_pipeline
-from physics_atv_visual_mapping.localmapping.voxel.voxel_localmapper import VoxelLocalMapper
+from physics_atv_visual_mapping.localmapping.voxel.voxel_localmapper import VoxelLocalMapper, VoxelGrid
 from physics_atv_visual_mapping.localmapping.metadata import LocalMapperMetadata
+from physics_atv_visual_mapping.image_processing.processing_blocks.traversability_prototypes import TraversabilityPrototypesBlock
 from physics_atv_visual_mapping.utils import *
-import time
 
 class VoxelMappingNode:
     def __init__(self, config):
         self.device = config["device"]
         self.base_metadata = config["localmapping"]["metadata"]
         self.localmap_ema = config["localmapping"]["ema"]
-        self.layer_key = (
-            config["localmapping"]["layer_key"]
-            if "layer_key" in config["localmapping"].keys()
-            else None
-        )
-        self.layer_keys = (
-            self.make_layer_keys(config["localmapping"]["layer_keys"])
-            if "layer_keys" in config["localmapping"].keys()
-            else None
-        )
         self.last_update_time = 0.0
 
         self.image_pipeline = setup_image_pipeline(config)
@@ -49,8 +41,12 @@ class VoxelMappingNode:
             rospy.loginfo("doing terrain estimation")
             self.terrain_estimator = setup_terrain_estimation_pipeline(config)
 
+        self.do_proj_cleanup = config['do_proj_cleanup']
+
         self.vehicle_frame = config['vehicle_frame']
         self.mapping_frame = config['mapping_frame']
+
+        self.gridmap_pub_keys = config['gridmap_pub_keys'] if 'gridmap_pub_keys' in config.keys() else None
 
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
@@ -62,16 +58,22 @@ class VoxelMappingNode:
 
     def setup_ros_interface(self, config):
         #guarantee images in same order
-        self.image_keys = []
+        """
+        As far as I know, we can't do an ApproximateTimeSynchronizer with
+        variable number of topics, so we have to hard-code the three camera keys
+        """
+        self.image_keys = ['image_left', 'image_front', 'image_right']
+        assert all([ik in config['images'].keys() for ik in self.image_keys]), "unfortunately, we require all of {} in the config".format(self.image_keys)
+
         self.image_data = {}
         self.image_pubs = {}
         self.image_subs = {}
 
         self.pcl_msg = None
 
-        for img_key, img_conf in config['images'].items():
+        for img_key in self.image_keys:
+            img_conf = config['images'][img_key]
             self.image_data[img_key] = {}
-            self.image_keys.append(img_key)
 
             self.image_data[img_key]['intrinsics'] = get_intrinsics(np.array(img_conf["intrinsics"]["P"]).reshape(3, 3)).float().to(self.device)
             self.image_data[img_key]['extrinsics'] = pose_to_htm(np.concatenate(
@@ -81,17 +83,33 @@ class VoxelMappingNode:
                     ], axis=-1,)).to(self.device)
             self.image_data[img_key]['message'] = None
 
-            self.image_subs[img_key] = rospy.Subscriber(img_conf['image_topic'], Image, self.handle_img, callback_args=img_key)
-            self.image_pubs[img_key] = rospy.Publisher("feature_images/{}".format(img_key), Image)
+            self.image_subs[img_key] = message_filters.Subscriber(img_conf['image_topic'], Image)
+            self.image_pubs[img_key] = rospy.Publisher("feature_images/{}".format(img_key), Image, queue_size=10)
 
-        self.pcl_sub = rospy.Subscriber(config["pointcloud"]["topic"], PointCloud2, self.handle_pointcloud)
+        self.pcl_sub = message_filters.Subscriber(config["pointcloud"]["topic"], PointCloud2)
 
-        self.pcl_pub = rospy.Publisher("feature_pc", PointCloud2)
-        self.voxel_pub = rospy.Publisher("feature_voxels", PointCloud2)
+        self.pcl_pub = rospy.Publisher("feature_pc", PointCloud2, queue_size=10)
+        self.voxel_pub = rospy.Publisher("feature_voxels", PointCloud2, queue_size=10)
 
-        # self.odom_sub = rospy.Subscriber(config["odometry"]["topic"], Odometry, self.handle_odom, 10)
+        self.gridmap_pub = rospy.Publisher("gridmap", GridMap, queue_size=10)
 
-        # self.timing_pub = self.create_publisher(Float32, "/dino_proc_time", 10)
+        subs = [self.pcl_sub] + [self.image_subs[k] for k in self.image_keys]
+
+        self.time_sync = message_filters.ApproximateTimeSynchronizer(subs, 10, slop=0.05)
+        self.time_sync.registerCallback(self.handle_data)
+
+    def handle_data(self, pc_msg, img_left_msg, img_front_msg, img_right_msg):
+        # logstr = "sync check:\n\tcurr time: {}".format(rospy.Time.now().to_sec())
+        # logstr += "\n\tpointcloud:  {}".format(pc_msg.header.stamp.to_sec())
+        # logstr += "\n\timage left:  {}".format(img_left_msg.header.stamp.to_sec())
+        # logstr += "\n\timage front: {}".format(img_front_msg.header.stamp.to_sec())
+        # logstr += "\n\timage right: {}".format(img_right_msg.header.stamp.to_sec())
+        # rospy.loginfo(logstr)
+
+        self.pcl_msg = pc_msg
+        self.image_data['image_left']['message'] = img_left_msg
+        self.image_data['image_front']['message'] = img_front_msg
+        self.image_data['image_right']['message'] = img_right_msg
 
     def setup_localmapper(self, config):
         """
@@ -144,35 +162,16 @@ class VoxelMappingNode:
                 rospy.logwarn("no {} msg received".format(img_key))
                 return None
 
+        pc_frame = self.pcl_msg.header.frame_id
+        pc_stamp = self.pcl_msg.header.stamp
+
         # need to wait for tf to be available
-        try:
-            tf_vehicle_to_pcl_msg = self.tf_buffer.lookup_transform(
-                self.vehicle_frame,
-                self.pcl_msg.header.frame_id,
-                self.pcl_msg.header.stamp,
-                timeout=rospy.Duration(0.1)
-            )
-        except (tf2_ros.TransformException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-            rospy.logwarn("cant tf from {} to {} at {}".format(
-                self.vehicle_frame,
-                self.pcl_msg.header.frame_id,
-                self.pcl_msg.header.stamp,
-            ))
+        tf_vehicle_to_pcl_msg = self.get_tf(self.vehicle_frame, pc_frame, pc_stamp)
+        if tf_vehicle_to_pcl_msg is None:
             return None
 
-        try:
-            tf_odom_to_pcl_msg = self.tf_buffer.lookup_transform(
-                self.mapping_frame,
-                self.pcl_msg.header.frame_id,
-                self.pcl_msg.header.stamp,
-                timeout=rospy.Duration(0.1)
-            )
-        except (tf2_ros.TransformException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
-            rospy.logwarn("cant tf from {} to {} at {}".format(
-                self.mapping_frame,
-                self.pcl_msg.header.frame_id,
-                self.pcl_msg.header.stamp,
-            ))
+        tf_odom_to_pcl_msg = self.get_tf(self.mapping_frame, pc_frame, pc_stamp)
+        if tf_odom_to_pcl_msg is None:
             return None
 
         pcl = pcl_msg_to_xyz(self.pcl_msg).to(self.device)
@@ -202,9 +201,30 @@ class VoxelMappingNode:
             )
             img = torch.tensor(img).unsqueeze(0).permute(0, 3, 1, 2).to(self.device)
 
+            img_stamp = self.image_data[img_key]['message'].header.stamp
+
+            tf_odom_to_veh_pc_msg = self.get_tf(self.mapping_frame, pc_frame, pc_stamp)
+            if tf_odom_to_veh_pc_msg is None:
+                return None
+
+            # rospy.loginfo("pc time: {}, img time: {}, diff: {}".format(pc_stamp.to_sec(), img_stamp.to_sec(), (img_stamp - pc_stamp).to_sec()))
+
+            tf_odom_to_veh_img_msg = self.get_tf(self.mapping_frame, pc_frame, img_stamp)
+            if tf_odom_to_veh_img_msg is None:
+                return None
+
+            odom_to_veh_pc_htm = tf_msg_to_htm(tf_odom_to_veh_pc_msg).to(self.device)
+            odom_to_veh_img_htm = tf_msg_to_htm(tf_odom_to_veh_img_msg).to(self.device)
+
+            veh_to_veh_htm = odom_to_veh_img_htm @ torch.linalg.inv(odom_to_veh_pc_htm)
+
+            extrinsics_corrected = veh_to_veh_htm @ self.image_data[img_key]['extrinsics']
+
+            # rospy.loginfo('extrinsics_correction: {}'.format(veh_to_veh_htm))
+
             images.append(img)
             image_intrinsics.append(self.image_data[img_key]['intrinsics'])
-            image_extrinsics.append(self.image_data[img_key]['extrinsics'])
+            image_extrinsics.append(extrinsics_corrected)
 
         images = torch.cat(images, dim=0)
         image_intrinsics = torch.stack(image_intrinsics, dim=0)
@@ -218,6 +238,11 @@ class VoxelMappingNode:
         image_Ps = get_projection_matrix(feature_intrinsics, image_extrinsics)
 
         coords, valid_mask = get_pixel_projection(pcl_in_vehicle, image_Ps, feature_images)
+
+        if self.do_proj_cleanup:
+            valid_mask2 = cleanup_projection(pcl_in_vehicle, coords, valid_mask, feature_images)
+            valid_mask = valid_mask & valid_mask2
+
         pc_features, cnt = colorize(coords, valid_mask, feature_images)
         pc_features = pc_features[cnt > 0]
         feature_pcl = FeaturePointCloudTorch.from_torch(pts=pcl_in_odom, features=pc_features, mask=(cnt > 0))
@@ -234,54 +259,22 @@ class VoxelMappingNode:
             "feature_pc": feature_pcl,
         }
 
-    def make_voxel_msg(self, voxel_grid):
-        msg = FeatureVoxelGrid()
-        msg.header.stamp = self.pcl_msg.header.stamp
-        msg.header.frame_id = self.mapping_frame
-
-        msg.metadata.origin.x = voxel_grid.metadata.origin[0].item()
-        msg.metadata.origin.y = voxel_grid.metadata.origin[1].item()
-        msg.metadata.origin.z = voxel_grid.metadata.origin[2].item()
-
-        msg.metadata.length.x = voxel_grid.metadata.length[0].item()
-        msg.metadata.length.y = voxel_grid.metadata.length[1].item()
-        msg.metadata.length.z = voxel_grid.metadata.length[2].item()
-
-        msg.metadata.resolution.x = voxel_grid.metadata.resolution[0].item()
-        msg.metadata.resolution.y = voxel_grid.metadata.resolution[1].item()
-        msg.metadata.resolution.z = voxel_grid.metadata.resolution[2].item()
-
-        msg.num_voxels = voxel_grid.features.shape[0]
-        msg.num_features = voxel_grid.features.shape[1]
-
-        if self.layer_keys is None:
-            msg.feature_keys = [
-                "{}_{}".format(self.layer_key, i) for i in range(voxel_grid.features.shape[1])
-            ]
-        else:
-            msg.feature_keys = copy.deepcopy(self.layer_keys)
-
-        msg.indices = voxel_grid.indices.tolist()
-
-        feature_msg = Float32MultiArray()
-        feature_msg.layout.dim.append(
-            MultiArrayDimension(
-                label="column_index",
-                size=voxel_grid.features.shape[0],
-                stride=voxel_grid.features.shape[0],
+    def get_tf(self, src_frame, dst_frame, stamp, timeout=0.1):
+        try:
+            tf_msg = self.tf_buffer.lookup_transform(
+                src_frame,
+                dst_frame,
+                stamp,
+                timeout=rospy.Duration(timeout)
             )
-        )
-        feature_msg.layout.dim.append(
-            MultiArrayDimension(
-                label="row_index",
-                size=voxel_grid.features.shape[0],
-                stride=voxel_grid.features.shape[0] * voxel_grid.features.shape[1],
-            )
-        )
-
-        feature_msg.data = voxel_grid.features.flatten().tolist()
-
-        return msg
+            return tf_msg
+        except (tf2_ros.TransformException, tf2_ros.ConnectivityException, tf2_ros.ExtrapolationException) as e:
+            rospy.logwarn("cant tf from {} to {} at {}".format(
+                src_frame,
+                dst_frame,
+                stamp
+            ))
+            return None
 
     def make_gridmap_msg(self, bev_grid):
         """
@@ -294,18 +287,23 @@ class VoxelMappingNode:
         """
         gridmap_msg = GridMap()
 
+        if not all([k in bev_grid.feature_keys for k in self.gridmap_pub_keys]):
+            rospy.logwarn('not all pub keys in internal BEV map. Skipping...')
+            return gridmap_msg
+
         gridmap_data = bev_grid.data.cpu().numpy()
 
         # setup metadata
-        gridmap_msg.header.stamp = self.img_msg.header.stamp
-        gridmap_msg.header.frame_id = self.odom_frame
+        gridmap_msg.info.header.stamp = self.pcl_msg.header.stamp
+        gridmap_msg.info.header.frame_id = self.mapping_frame
 
-        gridmap_msg.layers = bev_grid.feature_keys
+        gridmap_msg.layers = bev_grid.feature_keys if self.gridmap_pub_keys is None else self.gridmap_pub_keys + ["min_elevation_filtered_inflated_mask"]
 
         #temp hack
         gridmap_msg.basic_layers = ["min_elevation_filtered_inflated_mask"]
-        mask_idx = gridmap_msg.layers.index("min_elevation_filtered_inflated_mask")
+        mask_idx = bev_grid.feature_keys.index("min_elevation_filtered_inflated_mask")
         mask = gridmap_data[..., mask_idx] > 0.1
+        
         gridmap_data[..., mask_idx][~mask] = float('nan')
 
         gridmap_msg.info.resolution = self.localmapper.metadata.resolution[0].item()
@@ -317,7 +315,7 @@ class VoxelMappingNode:
         gridmap_msg.info.pose.position.y = (
             self.localmapper.metadata.origin[1].item() + 0.5 * gridmap_msg.info.length_y
         )
-        gridmap_msg.info.pose.position.z = self.odom_msg.pose.pose.position.z
+        gridmap_msg.info.pose.position.z = 0.
         gridmap_msg.info.pose.orientation.w = 1.0
         # transposed_layer_data = np.transpose(gridmap_data, (0, 2,1))
         # flipped_layer_data = np.flip(np.flip(transposed_layer_data, axis=1), axis=2)
@@ -334,8 +332,11 @@ class VoxelMappingNode:
         # Step 3: Flatten each 2D layer, maintaining the layers' structure (flattening across x, y)
         flattened_data = transposed_data.reshape(-1, gridmap_data.shape[-1])
         accum_time = 0
-        for i in range(gridmap_data.shape[-1]):
+        # for i in range(gridmap_data.shape[-1]):
+        for k in gridmap_msg.layers:
+            i = bev_grid.feature_keys.index(k)
             layer_data = gridmap_data[..., i]
+
             gridmap_layer_msg = Float32MultiArray()
             gridmap_layer_msg.layout.dim.append(
                 MultiArrayDimension(
@@ -360,13 +361,12 @@ class VoxelMappingNode:
 
             # gridmap_layer_msg.data = flipped_layer_data[i].flatten().tolist()
             gridmap_msg.data.append(gridmap_layer_msg)
+
         rospy.loginfo("time to flatten layer {}: {}".format(i, accum_time))
         # add dummy elevation
         gridmap_msg.layers.append("elevation")
         layer_data = (
             np.zeros_like(gridmap_data[..., 0])
-            + self.odom_msg.pose.pose.position.z
-            - 1.73
         )
         gridmap_layer_msg = Float32MultiArray()
         gridmap_layer_msg.layout.dim.append(
@@ -523,52 +523,6 @@ class VoxelMappingNode:
         img_msg.header.stamp = self.image_data[img_key]['message'].header.stamp
         return img_msg
 
-    def publish_messages(self, res):
-        """
-        Publish the dino pcl and dino map
-        """
-        pts = self.localmapper.voxel_grid.grid_indices_to_pts(
-            self.localmapper.voxel_grid.raster_indices_to_grid_indices(
-                self.localmapper.voxel_grid.indices
-            )
-        )
-        colors = self.localmapper.voxel_grid.features[:, :3]
-        vmin = colors.min(dim=0)[0]
-        vmax = colors.max(dim=0)[0]
-
-        all_idxs = torch.cat([self.localmapper.voxel_grid.indices, self.localmapper.voxel_grid.all_indices])
-        unique, cnts = torch.unique(all_idxs, return_counts=True)
-        non_colorized_idxs = unique[cnts==1]
-
-        non_colorized_pts = self.localmapper.voxel_grid.grid_indices_to_pts(
-            self.localmapper.voxel_grid.raster_indices_to_grid_indices(non_colorized_idxs)
-        )
-
-        color_placeholder = 0.1 * torch.ones(non_colorized_pts.shape[0], 3, device=non_colorized_pts.device)
-
-        pts = torch.cat([pts, non_colorized_pts], dim=0)
-        colors = torch.cat([colors, color_placeholder], dim=0)
-
-        voxel_viz_msg = self.make_pcl_msg(
-            torch.cat([pts, colors], axis=-1), vmin=vmin, vmax=vmax
-        )
-        self.voxel_viz_pub.publish(voxel_viz_msg)
-
-        # voxel_msg = self.make_voxel_msg(self.localmapper.voxel_grid)
-        # self.voxel_pub.publish(voxel_msg)
-
-        pcl_msg = self.make_pcl_msg(res["dino_pcl"], vmin=vmin, vmax=vmax)
-        self.pcl_pub.publish(pcl_msg)
-
-        img_msg = self.make_img_msg(res["dino_image"], vmin=vmin, vmax=vmax)
-        self.image_pub.publish(img_msg)
-
-        gridmap_msg = self.make_gridmap_msg(self.bev_grid)
-        self.gridmap_pub.publish(gridmap_msg)
-
-        timing_msg = Float32()
-        self.timing_pub.publish(timing_msg)
-
     def spin(self, event):
         rospy.loginfo("spinning...")
 
@@ -582,25 +536,87 @@ class VoxelMappingNode:
             update_start_time = time.time()
             self.localmapper.update_pose(res["pos"])
             self.localmapper.add_feature_pc(
-                pos=res['pos'], feat_pc=res["feature_pc"], do_raytrace=True
+                pos=res['pos'], feat_pc=res["feature_pc"], do_raytrace=False
             )
 
             if self.do_terrain_estimation:
                 self.bev_grid = self.terrain_estimator.run(self.localmapper.voxel_grid)
 
+            torch.cuda.synchronize()
             update_end_time = time.time()
 
             pub_start_time = time.time()
             msg = self.make_pcl_msg(res['feature_pc'])
             self.pcl_pub.publish(msg)
 
-            msg = self.make_voxel_viz_msg(self.localmapper.voxel_grid)
-            self.voxel_pub.publish(msg)
+            if self.do_terrain_estimation:
+                msg = self.make_gridmap_msg(self.bev_grid)
+                self.gridmap_pub.publish(msg)
+
+
+            if isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock):
+                n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
+
+                pos_scores = self.localmapper.voxel_grid.features[..., :n_pos_ptypes].max(dim=-1)[0]
+                neg_scores = self.localmapper.voxel_grid.features[..., n_pos_ptypes:].max(dim=-1)[0]
+                score = pos_scores - neg_scores
+                score_feats = torch.stack([score] * 3, dim=-1)
+
+                #copy the voxel grid for pub
+                score_voxel_grid = VoxelGrid(
+                    metadata=self.localmapper.voxel_grid.metadata,
+                    n_features=3,
+                    device=self.localmapper.voxel_grid.device
+                )
+                score_voxel_grid.raster_indices = self.localmapper.voxel_grid.raster_indices.clone()
+                score_voxel_grid.feature_mask = self.localmapper.voxel_grid.feature_mask.clone()
+                score_voxel_grid.features = score_feats
+
+                score_min = score_feats.min(dim=0)[0]
+                score_max = score_feats.max(dim=0)[0]
+
+                msg = self.make_voxel_viz_msg(score_voxel_grid)
+                self.voxel_pub.publish(msg)
+
+                for i, img_key in enumerate(self.image_keys):
+                    feat_img = res["feature_images"][i]
+                    #hack to remake pseudo det images
+
+                    n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
+                    pos_score = feat_img[..., :n_pos_ptypes].max(dim=-1)[0]
+                    neg_score = feat_img[..., n_pos_ptypes:].max(dim=-1)[0]
+                    score = pos_score - neg_score
+                    score_img = torch.stack([score] * 3, dim=-1)
+
+                    pub = self.image_pubs[img_key]
+                    msg = self.make_img_msg(score_img, img_key, vmin=score_min, vmax=score_max)
+                    pub.publish(msg)
+
+            else:
+                msg = self.make_voxel_viz_msg(self.localmapper.voxel_grid)
+                self.voxel_pub.publish(msg)
+
+                for i, img_key in enumerate(self.image_keys):
+                    feat_img = res["feature_images"][i]
+                    pub = self.image_pubs[img_key]
+                    msg = self.make_img_msg(feat_img, img_key)
+                    pub.publish(msg)
 
             for i, img_key in enumerate(self.image_keys):
                 feat_img = res["feature_images"][i]
+                #hack to remake pseudo det images
+
+                if isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock):
+                    n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
+                    pos_score = feat_img[..., :n_pos_ptypes].max(dim=-1)[0]
+                    neg_score = feat_img[..., n_pos_ptypes:].max(dim=-1)[0]
+                    score = pos_score - neg_score
+                    score_img = torch.stack([score] * 3, dim=-1)
+                else:
+                    score_img = feat_img
+
                 pub = self.image_pubs[img_key]
-                msg = self.make_img_msg(feat_img, img_key)
+                msg = self.make_img_msg(score_img, img_key)
                 pub.publish(msg)
 
             pub_end_time = time.time()
@@ -619,9 +635,9 @@ class VoxelMappingNode:
 if __name__ == '__main__':
     rospy.init_node('visual_mapping')
 
-    # config_fp = rospy.get_param("~config_fp")
+    config_fp = rospy.get_param("~config_fp")
 
-    config_fp = '/catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/config/ros/rzr_voxel_mapping.yaml'
+    # config_fp = '/catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/config/ros/rzr_voxel_mapping.yaml'
     config = yaml.safe_load(open(config_fp, 'r'))
 
     visual_mapping_node = VoxelMappingNode(config)

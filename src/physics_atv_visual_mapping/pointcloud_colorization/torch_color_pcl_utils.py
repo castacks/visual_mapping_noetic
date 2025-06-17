@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch_scatter
 
 # import matplotlib.pyplot as plt
 import cv2
@@ -142,6 +143,56 @@ def get_pixel_projection(points, P, images):
     valid_mask = cond1 & cond2 & cond3 & cond4 & cond5
 
     return coords, valid_mask
+
+def cleanup_projection(points, pixel_coords, valid_mask, images):
+    """
+    Perform simple outlier removal per pixel to prevent "bleeding" of projection.
+    Algo is something like this:
+        For every pixel:
+            - find the set of points that project into that pixel
+            - get min and stddev of range
+            - pixels beyond this range are actually invalid
+
+    Args:
+        points: [Nx3] FloatTensor of points (in base frame)
+        coords: [B x N x 2] FloatTensor of pixel coords for each image
+        valid_mask: [B x N] BoolTensor containing True if the N-th pt is visible in the B-th image
+
+    Returns:
+        valid_mask: [B x N] BoolTensor of whether the N-th pt was filtered in the B-th image
+    """
+    iw = images.shape[2]
+    ih = images.shape[1]
+    ni = images.shape[0]
+
+    ranges = torch.linalg.norm(points, dim=-1)
+    ranges = ranges.view(1, -1).tile(images.shape[0], 1)
+    ranges[~valid_mask] = 1e10
+
+    #need to scatter ranges into a BxWxH
+    pixel_coords_trunc = pixel_coords.long()
+    pixel_coords_trunc[~valid_mask] = 0
+
+    pixel_raster_idxs = pixel_coords_trunc[..., 1] * iw + pixel_coords_trunc[..., 0]
+
+    min_range = torch_scatter.scatter(src=ranges, index=pixel_raster_idxs, dim=-1, dim_size=iw*ih, reduce='min')
+    min_range = min_range.view(ni, ih, iw) #[B x W x H]
+
+    #now we can index into the min range image with coords
+    ixs = pixel_coords_trunc[..., 1]
+    iys = pixel_coords_trunc[..., 0]
+
+    ibs = torch.arange(ni).view(ni, 1).tile(1, ixs.shape[-1])
+
+    query_ranges = min_range[ibs, ixs, iys]
+
+    #TODO cleanup
+    MARGIN = 1.
+    too_far = (ranges - query_ranges) > MARGIN
+
+    new_valid = ~too_far & valid_mask
+
+    return new_valid
 
 def colorize(pixel_coordinates, valid_mask, images, bilinear_interpolation=True, reduce=True):
     """
