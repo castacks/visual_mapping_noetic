@@ -13,7 +13,7 @@ import cv_bridge
 import message_filters
 
 from std_msgs.msg import Float32, Float32MultiArray, MultiArrayDimension
-from sensor_msgs.msg import PointCloud2, Image
+from sensor_msgs.msg import PointCloud2, Image, CameraInfo
 from nav_msgs.msg import Odometry
 from grid_map_msgs.msg import GridMap
 
@@ -79,12 +79,10 @@ class VoxelMappingNode:
             img_conf = config['images'][img_key]
             self.image_data[img_key] = {}
 
-            self.image_data[img_key]['intrinsics'] = get_intrinsics(np.array(img_conf["intrinsics"]["P"]).reshape(3, 3)).float().to(self.device)
-            self.image_data[img_key]['extrinsics'] = pose_to_htm(np.concatenate(
-                    [
-                        np.array(img_conf["extrinsics"]["p"]),
-                        np.array(img_conf["extrinsics"]["q"]),
-                    ], axis=-1,)).to(self.device)
+            intrinsics_msg = rospy.wait_for_message(img_conf['camera_info_topic'], CameraInfo)
+            intriniscs_arr = np.array(intrinsics_msg.P).reshape(3, 4)[:, :3]
+            self.image_data[img_key]['intrinsics'] = get_intrinsics(intriniscs_arr).float().to(self.device)
+            
             self.image_data[img_key]['message'] = None
 
             self.image_subs[img_key] = message_filters.Subscriber(img_conf['image_topic'], Image)
@@ -105,7 +103,7 @@ class VoxelMappingNode:
 
         subs = [self.pcl_sub] + [self.image_subs[k] for k in self.image_keys]
 
-        self.time_sync = message_filters.ApproximateTimeSynchronizer(subs, 10, slop=0.05)
+        self.time_sync = message_filters.ApproximateTimeSynchronizer(subs, 10, slop=0.01)
         self.time_sync.registerCallback(self.handle_data)
 
     def get_mask(self, mask_fp, size=(960, 594)):
@@ -222,7 +220,7 @@ class VoxelMappingNode:
                 / 255.0
             )
             img = torch.tensor(img).unsqueeze(0).permute(0, 3, 1, 2).to(self.device)
-
+            img_frame = self.image_data[img_key]['message'].header.frame_id
             img_stamp = self.image_data[img_key]['message'].header.stamp
 
             tf_odom_to_veh_pc_msg = self.get_tf(self.mapping_frame, pc_frame, pc_stamp)
@@ -235,12 +233,17 @@ class VoxelMappingNode:
             if tf_odom_to_veh_img_msg is None:
                 return None
 
+            tf_veh_to_img_msg = self.get_tf(img_frame, pc_frame, img_stamp)
+            if tf_veh_to_img_msg is None:
+                return None
+
             odom_to_veh_pc_htm = tf_msg_to_htm(tf_odom_to_veh_pc_msg).to(self.device)
             odom_to_veh_img_htm = tf_msg_to_htm(tf_odom_to_veh_img_msg).to(self.device)
+            veh_to_img_htm = tf_msg_to_htm(tf_veh_to_img_msg).to(self.device)
 
             veh_to_veh_htm = odom_to_veh_img_htm @ torch.linalg.inv(odom_to_veh_pc_htm)
 
-            extrinsics_corrected = veh_to_veh_htm @ self.image_data[img_key]['extrinsics']
+            extrinsics_corrected = veh_to_veh_htm @ veh_to_img_htm
 
             # rospy.loginfo('extrinsics_correction: {}'.format(veh_to_veh_htm))
 
@@ -434,7 +437,14 @@ class VoxelMappingNode:
 
         fpc = FeaturePointCloudTorch.from_torch(pts=pts, features=feats, mask=mask)
 
-        return self.make_pcl_msg(fpc)
+        msg = self.xyz_array_to_point_cloud_msg(
+            points=pts[mask].cpu().numpy(),
+            frame=self.mapping_frame,
+            timestamp=self.pcl_msg.header.stamp,
+            intensity=feats[..., 0].cpu().numpy()
+        )
+
+        return msg
 
     def make_pcl_msg(self, pcl, vmin=None, vmax=None):
         """
@@ -467,7 +477,7 @@ class VoxelMappingNode:
         return msg
 
     def xyz_array_to_point_cloud_msg(
-        self, points, frame, timestamp=None, rgb_values=None
+        self, points, frame, timestamp=None, rgb_values=None, intensity=None,
     ):
         """
         Modified from: https://github.com/castacks/physics_atv_deep_stereo_vo/blob/main/src/stereo_node_multisense.py
@@ -496,7 +506,7 @@ class VoxelMappingNode:
         msg.is_bigendian = False
         msg.is_dense = False  # Set to False since organized clouds are non-dense
 
-        if rgb_values is None:
+        if rgb_values is None and intensity is None:
             # XYZ only
             msg.fields = [
                 PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
@@ -507,7 +517,21 @@ class VoxelMappingNode:
             msg.row_step = msg.point_step * msg.width
             xyz = points.astype(np.float32)
             msg.data = xyz.tobytes()  # Convert to bytes
-        else:
+        elif rgb_values is None and intensity is not None:
+            msg.fields = [
+                PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name="y", offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name="z", offset=8, datatype=PointField.FLOAT32, count=1),
+                PointField(name="intensity", offset=12, datatype=PointField.FLOAT32, count=1),
+            ]
+            msg.point_step = 16  # 4 fields (x, y, z, i) each 4 bytes (float32)
+            msg.row_step = msg.point_step * msg.width
+            xyz = points.astype(np.float32)
+            intensity = intensity.astype(np.float32)
+            xyzi = np.concatenate([xyz, intensity.reshape(-1, 1)], axis=-1)
+            msg.data = xyzi.tobytes()  # Convert to bytes
+
+        elif rgb_values is not None and intensity is None:
             # XYZ and RGB
             msg.fields = [
                 PointField(name="x", offset=0, datatype=PointField.FLOAT32, count=1),
