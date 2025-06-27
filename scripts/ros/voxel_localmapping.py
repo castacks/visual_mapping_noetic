@@ -608,8 +608,6 @@ class VoxelMappingNode:
             update_end_time = time.time()
 
             pub_start_time = time.time()
-            msg = self.make_pcl_msg(res['feature_pc'])
-            self.pcl_pub.publish(msg)
 
             if self.do_terrain_estimation:
                 msg = self.make_gridmap_msg(self.bev_grid)
@@ -640,6 +638,17 @@ class VoxelMappingNode:
                 msg = self.make_voxel_viz_msg(score_voxel_grid)
                 self.voxel_pub.publish(msg)
 
+                pc_pos_scores = res["feature_pc"].features[..., :n_pos_ptypes].max(dim=-1)[0]
+                pc_neg_scores = res["feature_pc"].features[..., n_pos_ptypes:].max(dim=-1)[0]
+                pc_score = pc_pos_scores - pc_neg_scores
+                pc_score_msg = self.xyz_array_to_point_cloud_msg(
+                    points = res["feature_pc"].pts[res["feature_pc"].feat_mask].cpu().numpy(),
+                    frame=self.mapping_frame,
+                    timestamp=self.pcl_msg.header.stamp,
+                    intensity = pc_score.cpu().numpy()
+                )
+                self.pcl_pub.publish(pc_score_msg)
+
                 for i, img_key in enumerate(self.image_keys):
                     feat_img = res["feature_images"][i]
                     #hack to remake pseudo det images
@@ -663,6 +672,9 @@ class VoxelMappingNode:
                     pub = self.image_pubs[img_key]
                     msg = self.make_img_msg(feat_img, img_key)
                     pub.publish(msg)
+                    
+                msg = self.make_pcl_msg(res['feature_pc'])
+                self.pcl_pub.publish(msg)
 
             for i, img_key in enumerate(self.image_keys):
                 feat_img = res["feature_images"][i]
