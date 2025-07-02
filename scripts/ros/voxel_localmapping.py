@@ -1,8 +1,11 @@
+#! /usr/bin/python3
+
 import rospy
 import yaml
 import copy
 import time
 import numpy as np
+import threading
 
 np.float = np.float64  # hack for numpify
 
@@ -16,6 +19,8 @@ from std_msgs.msg import Float32, Float32MultiArray, MultiArrayDimension
 from sensor_msgs.msg import PointCloud2, Image, CameraInfo
 from nav_msgs.msg import Odometry
 from grid_map_msgs.msg import GridMap
+
+from vfm_voxel_interfaces.srv import UpdatePrototype, UpdatePrototypeResponse
 
 from ros_torch_converter.datatypes.pointcloud import FeaturePointCloudTorch
 
@@ -56,6 +61,7 @@ class VoxelMappingNode:
         self.bridge = cv_bridge.CvBridge()
 
         self.setup_ros_interface(config)
+        self.map_lock = threading.Lock()
 
         self.timer = rospy.Timer(rospy.Duration(config['rate']), self.spin)
 
@@ -105,6 +111,96 @@ class VoxelMappingNode:
 
         self.time_sync = message_filters.ApproximateTimeSynchronizer(subs, 10, slop=0.01)
         self.time_sync.registerCallback(self.handle_data)
+
+        self.update_ptype_srv = rospy.Service("update_prototypes", UpdatePrototype, self.handle_update_prototypes)
+
+    def handle_update_prototypes(self, req):
+        rospy.loginfo('request to add ptype {}, obstacle {}'.format(req.id, req.is_obstacle))
+        resp = UpdatePrototypeResponse(success=False)
+
+        ## check that we have a trav ptypes block
+        trav_ptypes_block = self.image_pipeline.blocks[-1]
+        if not isinstance(trav_ptypes_block, TraversabilityPrototypesBlock):
+            rospy.logwarn('not using trav ptypes!')
+            return resp
+
+        ## check if key already exists
+        ptype_keys = trav_ptypes_block.obstacle_keys if req.is_obstacle else trav_ptypes_block.nonobstacle_keys
+        ptype_data = trav_ptypes_block.obstacle_ptypes if req.is_obstacle else trav_ptypes_block.nonobstacle_ptypes
+        
+        if req.id in ptype_keys:
+            rospy.logwarn('{} already in ptype keys!'.format(req.id))
+            return resp
+
+        ## check that dimsize matches
+        if len(req.data) != ptype_data.shape[-1]:
+            rospy.logwarn('{} ptype shapes dont match (req: {} data: {})!'.format(
+                req.id,
+                len(req.data),
+                ptype_data.shape[-1]
+            ))
+            return resp
+
+        ## ok, good to update
+        rospy.loginfo('updating voxel stuff')
+        new_ptype = torch.tensor(req.data).to(self.device)
+        self.add_prototype_to_voxel_mapper(req.id, req.is_obstacle, new_ptype)
+
+        rospy.loginfo('successfully updated voxel stuff')
+
+        ## TODO save the updated prototypes and send response
+        resp.success = True
+        return resp
+
+    def add_prototype_to_voxel_mapper(self, id, is_obstacle, ptype):
+        """
+        Args:
+            id: name of the prototype
+            is_obstacle: whether the prototype is obstacle
+            ptype: the actual prototype data
+        Returns:
+            None
+
+        This method will add an additional channel to the image pipeline and voxel mapper
+        """
+        with self.map_lock:
+            trav_ptypes_block = self.image_pipeline.blocks[-1]
+            ptype_keys = trav_ptypes_block.obstacle_keys if is_obstacle else trav_ptypes_block.nonobstacle_keys
+            ptype_data = trav_ptypes_block.obstacle_ptypes if is_obstacle else trav_ptypes_block.nonobstacle_ptypes
+            
+            #need to know where obstacle/nonobstacle split is
+            n_obstacle_ptypes = len(trav_ptypes_block.obstacle_keys)
+
+            ptype_keys.append(id)
+            ptype_data = torch.cat([
+                ptype_data,
+                ptype.view(1, -1)
+            ], dim=0)
+
+            new_voxel_data = torch.zeros(
+                self.localmapper.voxel_grid.features.shape[0],
+                self.localmapper.voxel_grid.features.shape[1] + 1
+            ).to(self.device)
+
+            #update feat dim of mapping pipelines
+            self.localmapper.n_features += 1
+            if self.do_terrain_estimation:
+                self.terrain_estimator.voxel_n_features += 1
+                for block in self.terrain_estimator.blocks:
+                    block.voxel_n_features += 1
+
+            #if obstacle prototype, mapping channel is last obstacle channel
+            if is_obstacle:
+                new_voxel_data[:, :n_obstacle_ptypes] = self.localmapper.voxel_grid.features[:, :n_obstacle_ptypes]
+                new_voxel_data[:, n_obstacle_ptypes+1:] = self.localmapper.voxel_grid.features[:, n_obstacle_ptypes:]
+
+                self.localmapper.voxel_grid.features = new_voxel_data
+                self.image_pipeline.blocks[-1].obstacle_ptypes = ptype_data
+            #else mapping channel is last channel
+            else:
+                new_voxel_data[:, :-1] = self.localmapper.voxel_grid.features
+                self.localmapper.voxel_grid.features = new_voxel_data
+                self.image_pipeline.blocks[-1].nonobstacle_ptypes = ptype_data
 
     def get_mask(self, mask_fp, size=(960, 594)):
         """
@@ -157,12 +253,6 @@ class VoxelMappingNode:
     def handle_pointcloud(self, msg):
         # rospy.loginfo('handling pointcloud')
         self.pcl_msg = msg
-
-    # def handle_odom(self, msg):
-    #     rospy.loginfo('handling odom')
-    #     if self.odom_frame is None:
-    #         self.odom_frame = msg.header.frame_id
-    #     self.odom_msg = msg
 
     def handle_img(self, msg, img_key):
         # rospy.loginfo('handling img {}'.format(img_key))
@@ -290,7 +380,7 @@ class VoxelMappingNode:
 
         pos = odom_to_vehicle_htm[:3, -1]
 
-        rospy.loginfo('colorized {}/{} points'.format(feature_pcl.features.shape[0], feature_pcl.pts.shape[0]))
+        rospy.loginfo_throttle(5.0, 'colorized {}/{} points'.format(feature_pcl.features.shape[0], feature_pcl.pts.shape[0]))
 
         return {
             "pos": pos,
@@ -403,7 +493,7 @@ class VoxelMappingNode:
             # gridmap_layer_msg.data = flipped_layer_data[i].flatten().tolist()
             gridmap_msg.data.append(gridmap_layer_msg)
 
-        rospy.loginfo("time to flatten layer {}: {}".format(i, accum_time))
+        rospy.loginfo_throttle(5.0, "time to flatten layer {}: {}".format(i, accum_time))
         # add dummy elevation
         gridmap_msg.layers.append("elevation")
         layer_data = (
@@ -586,125 +676,126 @@ class VoxelMappingNode:
         return img_msg
 
     def spin(self, event):
-        rospy.loginfo("spinning...")
+        rospy.loginfo_throttle(5.0, "spinning...")
 
         preproc_start_time = time.time()
         res = self.preprocess_inputs()
         preproc_end_time = time.time()
 
         if res:
-            rospy.loginfo("updating localmap...")
+            with self.map_lock:
+                rospy.loginfo_throttle(5.0, "updating localmap...")
 
-            update_start_time = time.time()
-            self.localmapper.update_pose(res["pos"])
-            self.localmapper.add_feature_pc(
-                pos=res['pos'], feat_pc=res["feature_pc"], do_raytrace=False
-            )
-
-            if self.do_terrain_estimation:
-                self.bev_grid = self.terrain_estimator.run(self.localmapper.voxel_grid)
-
-            torch.cuda.synchronize()
-            update_end_time = time.time()
-
-            pub_start_time = time.time()
-
-            if self.do_terrain_estimation:
-                msg = self.make_gridmap_msg(self.bev_grid)
-                self.gridmap_pub.publish(msg)
-
-
-            if isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock):
-                n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
-
-                pos_scores = self.localmapper.voxel_grid.features[..., :n_pos_ptypes].max(dim=-1)[0]
-                neg_scores = self.localmapper.voxel_grid.features[..., n_pos_ptypes:].max(dim=-1)[0]
-                score = pos_scores - neg_scores
-                score_feats = torch.stack([score] * 3, dim=-1)
-
-                #copy the voxel grid for pub
-                score_voxel_grid = VoxelGrid(
-                    metadata=self.localmapper.voxel_grid.metadata,
-                    n_features=3,
-                    device=self.localmapper.voxel_grid.device
+                update_start_time = time.time()
+                self.localmapper.update_pose(res["pos"])
+                self.localmapper.add_feature_pc(
+                    pos=res['pos'], feat_pc=res["feature_pc"], do_raytrace=False
                 )
-                score_voxel_grid.raster_indices = self.localmapper.voxel_grid.raster_indices.clone()
-                score_voxel_grid.feature_mask = self.localmapper.voxel_grid.feature_mask.clone()
-                score_voxel_grid.features = score_feats
 
-                score_min = score_feats.min(dim=0)[0]
-                score_max = score_feats.max(dim=0)[0]
+                if self.do_terrain_estimation:
+                    self.bev_grid = self.terrain_estimator.run(self.localmapper.voxel_grid)
 
-                msg = self.make_voxel_viz_msg(score_voxel_grid)
-                self.voxel_pub.publish(msg)
+                torch.cuda.synchronize()
+                update_end_time = time.time()
 
-                pc_pos_scores = res["feature_pc"].features[..., :n_pos_ptypes].max(dim=-1)[0]
-                pc_neg_scores = res["feature_pc"].features[..., n_pos_ptypes:].max(dim=-1)[0]
-                pc_score = pc_pos_scores - pc_neg_scores
-                pc_score_msg = self.xyz_array_to_point_cloud_msg(
-                    points = res["feature_pc"].pts[res["feature_pc"].feat_mask].cpu().numpy(),
-                    frame=self.mapping_frame,
-                    timestamp=self.pcl_msg.header.stamp,
-                    intensity = pc_score.cpu().numpy()
-                )
-                self.pcl_pub.publish(pc_score_msg)
+                pub_start_time = time.time()
+
+                if self.do_terrain_estimation:
+                    msg = self.make_gridmap_msg(self.bev_grid)
+                    self.gridmap_pub.publish(msg)
+
+
+                if isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock):
+                    n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
+
+                    pos_scores = self.localmapper.voxel_grid.features[..., :n_pos_ptypes].max(dim=-1)[0]
+                    neg_scores = self.localmapper.voxel_grid.features[..., n_pos_ptypes:].max(dim=-1)[0]
+                    score = pos_scores - neg_scores
+                    score_feats = torch.stack([score] * 3, dim=-1)
+
+                    #copy the voxel grid for pub
+                    score_voxel_grid = VoxelGrid(
+                        metadata=self.localmapper.voxel_grid.metadata,
+                        n_features=3,
+                        device=self.localmapper.voxel_grid.device
+                    )
+                    score_voxel_grid.raster_indices = self.localmapper.voxel_grid.raster_indices.clone()
+                    score_voxel_grid.feature_mask = self.localmapper.voxel_grid.feature_mask.clone()
+                    score_voxel_grid.features = score_feats
+
+                    score_min = score_feats.min(dim=0)[0]
+                    score_max = score_feats.max(dim=0)[0]
+
+                    msg = self.make_voxel_viz_msg(score_voxel_grid)
+                    self.voxel_pub.publish(msg)
+
+                    pc_pos_scores = res["feature_pc"].features[..., :n_pos_ptypes].max(dim=-1)[0]
+                    pc_neg_scores = res["feature_pc"].features[..., n_pos_ptypes:].max(dim=-1)[0]
+                    pc_score = pc_pos_scores - pc_neg_scores
+                    pc_score_msg = self.xyz_array_to_point_cloud_msg(
+                        points = res["feature_pc"].pts[res["feature_pc"].feat_mask].cpu().numpy(),
+                        frame=self.mapping_frame,
+                        timestamp=self.pcl_msg.header.stamp,
+                        intensity = pc_score.cpu().numpy()
+                    )
+                    self.pcl_pub.publish(pc_score_msg)
+
+                    for i, img_key in enumerate(self.image_keys):
+                        feat_img = res["feature_images"][i]
+                        #hack to remake pseudo det images
+
+                        n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
+                        pos_score = feat_img[..., :n_pos_ptypes].max(dim=-1)[0]
+                        neg_score = feat_img[..., n_pos_ptypes:].max(dim=-1)[0]
+                        score = pos_score - neg_score
+                        score_img = torch.stack([score] * 3, dim=-1)
+
+                        pub = self.image_pubs[img_key]
+                        msg = self.make_img_msg(score_img, img_key, vmin=score_min, vmax=score_max)
+                        pub.publish(msg)
+
+                else:
+                    msg = self.make_voxel_viz_msg(self.localmapper.voxel_grid)
+                    self.voxel_pub.publish(msg)
+
+                    for i, img_key in enumerate(self.image_keys):
+                        feat_img = res["feature_images"][i]
+                        pub = self.image_pubs[img_key]
+                        msg = self.make_img_msg(feat_img, img_key)
+                        pub.publish(msg)
+                        
+                    msg = self.make_pcl_msg(res['feature_pc'])
+                    self.pcl_pub.publish(msg)
 
                 for i, img_key in enumerate(self.image_keys):
                     feat_img = res["feature_images"][i]
                     #hack to remake pseudo det images
 
-                    n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
-                    pos_score = feat_img[..., :n_pos_ptypes].max(dim=-1)[0]
-                    neg_score = feat_img[..., n_pos_ptypes:].max(dim=-1)[0]
-                    score = pos_score - neg_score
-                    score_img = torch.stack([score] * 3, dim=-1)
+                    if isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock):
+                        n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
+                        pos_score = feat_img[..., :n_pos_ptypes].max(dim=-1)[0]
+                        neg_score = feat_img[..., n_pos_ptypes:].max(dim=-1)[0]
+                        score = pos_score - neg_score
+                        score_img = torch.stack([score] * 3, dim=-1)
+                    else:
+                        score_img = feat_img
 
                     pub = self.image_pubs[img_key]
-                    msg = self.make_img_msg(score_img, img_key, vmin=score_min, vmax=score_max)
+                    msg = self.make_img_msg(score_img, img_key)
                     pub.publish(msg)
 
-            else:
-                msg = self.make_voxel_viz_msg(self.localmapper.voxel_grid)
-                self.voxel_pub.publish(msg)
+                pub_end_time = time.time()
 
-                for i, img_key in enumerate(self.image_keys):
-                    feat_img = res["feature_images"][i]
-                    pub = self.image_pubs[img_key]
-                    msg = self.make_img_msg(feat_img, img_key)
-                    pub.publish(msg)
-                    
-                msg = self.make_pcl_msg(res['feature_pc'])
-                self.pcl_pub.publish(msg)
-
-            for i, img_key in enumerate(self.image_keys):
-                feat_img = res["feature_images"][i]
-                #hack to remake pseudo det images
-
-                if isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock):
-                    n_pos_ptypes = len(self.image_pipeline.blocks[-1].obstacle_keys)
-                    pos_score = feat_img[..., :n_pos_ptypes].max(dim=-1)[0]
-                    neg_score = feat_img[..., n_pos_ptypes:].max(dim=-1)[0]
-                    score = pos_score - neg_score
-                    score_img = torch.stack([score] * 3, dim=-1)
-                else:
-                    score_img = feat_img
-
-                pub = self.image_pubs[img_key]
-                msg = self.make_img_msg(score_img, img_key)
-                pub.publish(msg)
-
-            pub_end_time = time.time()
-
-            rospy.loginfo(
-                "preprocess time: {}".format(preproc_end_time - preproc_start_time)
-            )
-            rospy.loginfo(
-                "update time: {}".format(update_end_time - update_start_time)
-            )
-            rospy.loginfo(
-                "publish time: {}".format(pub_end_time - pub_start_time)
-            )
-            rospy.loginfo("total time: {}".format(time.time() - preproc_start_time))
+                rospy.loginfo_throttle(5.0,
+                    "preprocess time: {}".format(preproc_end_time - preproc_start_time)
+                )
+                rospy.loginfo_throttle(5.0,
+                    "update time: {}".format(update_end_time - update_start_time)
+                )
+                rospy.loginfo_throttle(5.0,
+                    "publish time: {}".format(pub_end_time - pub_start_time)
+                )
+                rospy.loginfo_throttle(5.0, "total time: {}".format(time.time() - preproc_start_time))
 
 if __name__ == '__main__':
     rospy.init_node('visual_mapping')
