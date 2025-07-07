@@ -1,0 +1,29 @@
+# -
+#   name: cones
+#   desc: cone
+#   obstacle: True 
+
+# -
+#   name: tarp
+#   desc: tarp
+#   obstacle: True 
+
+# -
+#   name: boxes
+#   desc: cardboard boxes
+#   obstacle: True 
+
+-
+  name: trail
+  desc: trail
+  obstacle: False
+
+-
+  name: low_grass
+  desc: low grass
+  obstacle: False
+
+-
+  name: large_rocks
+  desc: large rocks
+  obstacle: True 

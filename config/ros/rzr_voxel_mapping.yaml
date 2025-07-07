@@ -5,7 +5,7 @@ do_proj_cleanup: true
 images:
     image_left:
         image_topic: /crl_rzr/multisense_left/aux/image_rect_color
-        camera_info_topic: /crl_rzr/multisense_left/aux/camera_info
+        camera_info_topic: /crl_rzr/multisense_left/aux/image_color/camera_info
         image_compressed: False
         folder: image_left
         mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/left.png
@@ -22,7 +22,7 @@ images:
         
     image_front:
         image_topic: /crl_rzr/multisense_front/aux/image_rect_color
-        camera_info_topic: /crl_rzr/multisense_front/aux/camera_info
+        camera_info_topic: /crl_rzr/multisense_front/aux/image_color/camera_info
         image_compressed: False
         folder: image_front
         mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/front.png
@@ -39,7 +39,7 @@ images:
 
     image_right:
         image_topic: /crl_rzr/multisense_right/aux/image_rect_color
-        camera_info_topic: /crl_rzr/multisense_right/aux/camera_info
+        camera_info_topic: /crl_rzr/multisense_right/aux/image_color/camera_info
         image_compressed: False
         folder: image_right
         mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/right.png
@@ -73,36 +73,21 @@ mapping_frame: crl_rzr/map
 
 image_processing:
     -
-        type: dino
+        type: radio_lang
         args:
-            # dino_type: dinov2_vitb14_reg
-            # dino_layers: [10]
-            # image_insize: [560, 448]
-
-            dino_type: radio_v2.5-b
-            dino_layers: [11]
-            image_insize: [640, 512]
-
-            # stride: 4
-            desc_facet: value
-
-    # - 
-    #     type: pca
-    #     args:
-    #         # fp: physics_atv_visual_mapping/pca/vitb_reg_64_gascola_veg.pt
-    #         fp: physics_atv_visual_mapping/pca/radio_64_trabuco_racer.pt
-
+            adaptor: clip
+            
     -
         type: traversability_prototypes
         args:
-            fp: physics_atv_visual_mapping/traversability_prototypes/trabuco_ptypes_test.pt
+            fp: physics_atv_visual_mapping/traversability_prototypes/text_ptypes.pt
 
 # voxel
 localmapping:
     mapper_type: voxel
     layer_key: dino
     ema: 0.5 #higher->use recent more
-    n_features: 8
+    n_features: 6
     metadata:
         origin: [-50., -50., -10.]
         length: [100., 100., 20.]
@@ -205,7 +190,7 @@ terrain_estimation:
         args:
             vfm_feature_key: dino #should match whatever's in the bev_feature_splat block
             mask_key: num_voxels
-            prototype_fp: /models/physics_atv_visual_mapping/traversability_prototypes/trabuco_ptypes_test.pt
+            prototype_fp: /models/physics_atv_visual_mapping/traversability_prototypes/text_ptypes.pt
 
 rate: 0.2
 device: cuda

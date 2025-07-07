@@ -14,11 +14,8 @@ class TraversabilityPrototypeScore(TerrainEstimationBlock):
 
         prototypes = torch.load(prototype_fp)
         
-        self.obstacle_keys = [pdata["label"] for pdata in prototypes["obstacle"]]
-        self.nonobstacle_keys = [pdata["label"] for pdata in prototypes["nonobstacle"]]
-
-        self.n_obstacle_ptypes = len(self.obstacle_keys)
-        self.n_nonobstacle_ptypes = len(self.nonobstacle_keys)
+        self.ptype_keys = prototypes['names']
+        self.ptype_obstacle = prototypes['is_obstacle'].to(self.device)
         
     def to(self, device):
         self.device = device
@@ -39,8 +36,8 @@ class TraversabilityPrototypeScore(TerrainEstimationBlock):
         ptype_scores = bev_grid.data[..., vfm_fidxs]
         mask = bev_grid.data[..., mask_idx] > 1e-4
 
-        obstacle_csim = ptype_scores[..., :self.n_obstacle_ptypes]
-        nonobstacle_csim = ptype_scores[..., self.n_obstacle_ptypes:]
+        obstacle_csim = ptype_scores[..., ~self.ptype_obstacle]
+        nonobstacle_csim = ptype_scores[..., self.ptype_obstacle]
 
         obs_csim_max = obstacle_csim.max(dim=-1)[0]
         nonobs_csim_max = nonobstacle_csim.max(dim=-1)[0]

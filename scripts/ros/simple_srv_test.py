@@ -9,7 +9,7 @@ if __name__ == '__main__':
     parser.add_argument('--service_id', type=str, required=False, default='/crl_rzr/vfm_voxel_mapping/update_prototypes')
     parser.add_argument('--id', type=str, required=False, default='debug')
     parser.add_argument('--nonobstacle', action='store_true', help='set flag if not obstacle')
-    parser.add_argument('--ndim', required=False, default=768, help='dim of the visual encoder')
+    parser.add_argument('--ndim', type=int, required=False, default=768, help='dim of the visual encoder')
     args = parser.parse_args()
 
     data = torch.rand(args.ndim).numpy()
