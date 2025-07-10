@@ -226,12 +226,12 @@ class VoxelMappingNode:
         return mask
 
     def handle_data(self, pc_msg, img_left_msg, img_front_msg, img_right_msg):
-        # logstr = "sync check:\n\tcurr time: {}".format(rospy.Time.now().to_sec())
-        # logstr += "\n\tpointcloud:  {}".format(pc_msg.header.stamp.to_sec())
-        # logstr += "\n\timage left:  {}".format(img_left_msg.header.stamp.to_sec())
-        # logstr += "\n\timage front: {}".format(img_front_msg.header.stamp.to_sec())
-        # logstr += "\n\timage right: {}".format(img_right_msg.header.stamp.to_sec())
-        # rospy.loginfo(logstr)
+        logstr = "sync check:\n\tcurr time: {}".format(rospy.Time.now().to_sec())
+        logstr += "\n\tpointcloud:  {}".format(pc_msg.header.stamp.to_sec())
+        logstr += "\n\timage left:  {}".format(img_left_msg.header.stamp.to_sec())
+        logstr += "\n\timage front: {}".format(img_front_msg.header.stamp.to_sec())
+        logstr += "\n\timage right: {}".format(img_right_msg.header.stamp.to_sec())
+        rospy.loginfo_throttle(5.0, logstr)
 
         self.pcl_msg = pc_msg
         self.image_data['image_left']['message'] = img_left_msg
@@ -342,11 +342,11 @@ class VoxelMappingNode:
             odom_to_veh_img_htm = tf_msg_to_htm(tf_odom_to_veh_img_msg).to(self.device)
             veh_to_img_htm = tf_msg_to_htm(tf_veh_to_img_msg).to(self.device)
 
-            veh_to_veh_htm = odom_to_veh_img_htm @ torch.linalg.inv(odom_to_veh_pc_htm)
+            veh_to_veh_htm = torch.linalg.inv(odom_to_veh_pc_htm) @ odom_to_veh_img_htm
 
             extrinsics_corrected = veh_to_veh_htm @ veh_to_img_htm
 
-            # rospy.loginfo('extrinsics_correction: {}'.format(veh_to_veh_htm))
+            rospy.loginfo_throttle(5.0, 'extrinsics_correction: {}'.format(veh_to_veh_htm))
 
             images.append(img)
             image_intrinsics.append(self.image_data[img_key]['intrinsics'])

@@ -54,6 +54,10 @@ images:
             p: [1.933, 1.999, -0.735]
             q: [-0.217, 0.812, -0.523, -0.144] #xyzw
 
+odometry:
+    topic: /crl_rzr/lopard/fused/odometry
+    folder: odometry
+
 pointcloud:
    topic: /crl_rzr/velodyne_merged_points
    folder: pointcloud_in_vehicle

@@ -7,8 +7,9 @@ import numpy as np
 import argparse
 import matplotlib.pyplot as plt
 
+from ros_torch_converter.tf_manager import TfManager
 
-from tartandriver_utils.geometry_utils import TrajectoryInterpolator
+from physics_atv_visual_mapping.geometry_utils import TrajectoryInterpolator
 
 from physics_atv_visual_mapping.image_processing.image_pipeline import (
     setup_image_pipeline,
@@ -32,6 +33,8 @@ if __name__ == "__main__":
 
     config = yaml.safe_load(open(args.config, "r"))
     print(config)
+
+    tf_manager = TfManager.from_kitti(args.data_dir)
 
     #setup proj stuff
     image_keys = list(config['images'].keys())
@@ -82,7 +85,8 @@ if __name__ == "__main__":
         pcl_dir = os.path.join(ddir, config["pointcloud"]["folder"])
         pcl_ts = np.loadtxt(os.path.join(pcl_dir, "timestamps.txt"))
 
-        for pcl_idx in np.arange(len(pcl_ts))[500::100]:
+        for pcl_idx in np.arange(len(pcl_ts))[1557::1]:
+        # for pcl_idx in np.arange(len(pcl_ts))[100::1]:
             ## setup pc ##
             pcl_fp = os.path.join(pcl_dir, "{:08d}.npy".format(pcl_idx))
             pcl = torch.from_numpy(np.load(pcl_fp)).to(config["device"]).float()
@@ -118,10 +122,22 @@ if __name__ == "__main__":
 
                 # import pdb;pdb.set_trace()
                 # pre-multiply by the tf from pc odom to img odom
-                odom_pc_H = pose_to_htm(traj_interp(pcl_t)).to(config['device'])
-                odom_img_H = pose_to_htm(traj_interp(img_t)).to(config['device'])
-                pc_img_H = odom_img_H @ torch.linalg.inv(odom_pc_H)
-                E = pc_img_H @ image_extrinsics[ii]
+                odom_pc_H2 = tf_manager.get_transform(
+                    config['mapping_frame'],
+                    config['vehicle_frame'],
+                    pcl_t
+                ).transform.to(config['device'])
+
+                odom_img_H2 = tf_manager.get_transform(
+                    config['mapping_frame'],
+                    config['vehicle_frame'],
+                    img_t
+                ).transform.to(config['device'])
+                pc_img_H2 = torch.linalg.inv(odom_pc_H2) @ odom_img_H2
+
+                print(pc_img_H2)
+
+                E = pc_img_H2 @ image_extrinsics[ii]
                 I = image_intrinsics[ii]
                 image_Ps.append(get_projection_matrix(I, E))
 
@@ -136,21 +152,22 @@ if __name__ == "__main__":
 
             pcl = pcl.cpu().numpy()
             pcl_dists = pcl_dists.cpu().numpy()
+            colors = pcl[:, 2].clip(-1., 0.)
 
-            axs[0, 0].scatter(pcl[:, 0], pcl[:, 1], c=pcl[:, 2], cmap='jet', s=1.)
+            axs[0, 0].scatter(pcl[:, 0], pcl[:, 1], c=colors, cmap='jet', s=1.)
             axs[0, 0].set_title('pc orig')
 
             cs = 'rgbcmyk'
             for ik, ilabel in enumerate(image_keys):
                 coors = coords[ik].cpu().numpy()
                 vmask = valid_mask[ik].cpu().numpy()
-                axs[0, 1+ik].scatter(pcl[vmask, 0], pcl[vmask, 1], c=pcl[vmask, 2], cmap='jet', s=1.)
+                axs[0, 1+ik].scatter(pcl[vmask, 0], pcl[vmask, 1], c=colors[vmask], cmap='jet', s=1.)
                 axs[0, 1+ik].set_title('pts in {}'.format(ilabel))
 
                 axs[0, -1].scatter(pcl[vmask, 0], pcl[vmask, 1], c=cs[ik], label=ilabel, s=1.)
 
                 axs[1, 1+ik].imshow(images[ik].cpu().numpy())
-                axs[1, 1+ik].scatter(coors[vmask, 0], coors[vmask, 1], s=1., cmap='jet', c=pcl_dists[vmask])
+                axs[1, 1+ik].scatter(coors[vmask, 0], coors[vmask, 1], s=1., cmap='jet', c=colors[vmask])
                 axs[1, 1+ik].set_title(ilabel)
 
             for ax in axs[0]:
