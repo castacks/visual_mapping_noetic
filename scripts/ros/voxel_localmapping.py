@@ -353,7 +353,7 @@ class VoxelMappingNode:
 
             extrinsics_corrected = veh_to_veh_htm @ veh_to_img_htm
 
-            rospy.loginfo_throttle(5.0, 'extrinsics_correction: {}'.format(veh_to_veh_htm))
+            # rospy.loginfo_throttle(5.0, 'extrinsics_correction: {}'.format(veh_to_veh_htm))
 
             images.append(img)
             image_intrinsics.append(self.image_data[img_key]['intrinsics'])

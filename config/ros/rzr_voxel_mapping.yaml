@@ -84,7 +84,7 @@ image_processing:
     -
         type: traversability_prototypes
         args:
-            fp: physics_atv_visual_mapping/traversability_prototypes/text_ptypes.pt
+            fp: physics_atv_visual_mapping/traversability_prototypes/text_ptypes_basic.pt
 
 # voxel
 localmapping:
@@ -194,7 +194,7 @@ terrain_estimation:
         args:
             vfm_feature_key: dino #should match whatever's in the bev_feature_splat block
             mask_key: num_voxels
-            prototype_fp: /models/physics_atv_visual_mapping/traversability_prototypes/text_ptypes.pt
+            prototype_fp: /models/physics_atv_visual_mapping/traversability_prototypes/text_ptypes_basic.pt
 
 rate: 0.2
 device: cuda
