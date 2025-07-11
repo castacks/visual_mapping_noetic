@@ -16,7 +16,7 @@ def pose_to_htm(pose):
     p = pose[:3]
     q = pose[3:7]
 
-    R = scipy.spatial.transform.Rotation.from_quat(q).as_matrix()
+    R = scipy.spatial.transform.Rotation.from_quat(q).as_dcm()
 
     htm = np.eye(4)
     htm[:3, :3] = R
@@ -101,6 +101,12 @@ class TrajectoryInterpolator:
         Args:
             qtimes: the set of times to query
         """
+        if isinstance(qtimes, float):
+            return self([qtimes])[0]
+
+        if len(qtimes) == 0:
+            return self(qtimes.reshape(1))[0]
+
         if self.is_velocity:
             xs = self.interp_x(qtimes)
             ys = self.interp_y(qtimes)

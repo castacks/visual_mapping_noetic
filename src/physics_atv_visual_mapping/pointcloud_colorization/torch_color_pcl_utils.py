@@ -187,7 +187,7 @@ def cleanup_projection(points, pixel_coords, valid_mask, images):
     query_ranges = min_range[ibs, ixs, iys]
 
     #TODO cleanup
-    MARGIN = 1.
+    MARGIN = 0.25
     too_far = (ranges - query_ranges) > MARGIN
 
     new_valid = ~too_far & valid_mask

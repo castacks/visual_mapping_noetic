@@ -349,11 +349,11 @@ class VoxelMappingNode:
             odom_to_veh_img_htm = tf_msg_to_htm(tf_odom_to_veh_img_msg).to(self.device)
             veh_to_img_htm = tf_msg_to_htm(tf_veh_to_img_msg).to(self.device)
 
-            veh_to_veh_htm = odom_to_veh_img_htm @ torch.linalg.inv(odom_to_veh_pc_htm)
+            veh_to_veh_htm = torch.linalg.inv(odom_to_veh_pc_htm) @ odom_to_veh_img_htm
 
             extrinsics_corrected = veh_to_veh_htm @ veh_to_img_htm
 
-            # rospy.loginfo('extrinsics_correction: {}'.format(veh_to_veh_htm))
+            rospy.loginfo_throttle(5.0, 'extrinsics_correction: {}'.format(veh_to_veh_htm))
 
             images.append(img)
             image_intrinsics.append(self.image_data[img_key]['intrinsics'])
