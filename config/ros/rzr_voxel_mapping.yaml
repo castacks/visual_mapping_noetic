@@ -87,7 +87,7 @@ localmapping:
     mapper_type: voxel
     layer_key: dino
     ema: 0.5 #higher->use recent more
-    n_features: 6
+    n_features: -1
     metadata:
         origin: [-50., -50., -10.]
         length: [100., 100., 20.]

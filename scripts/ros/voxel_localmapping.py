@@ -53,6 +53,9 @@ class VoxelMappingNode:
         self.last_update_time = 0.0
 
         self.image_pipeline = setup_image_pipeline(config)
+
+        self.is_ptype_mode = isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock)
+
         self.setup_localmapper(config)
         self.do_terrain_estimation = "terrain_estimation" in config.keys()
 
@@ -226,12 +229,12 @@ class VoxelMappingNode:
         return mask
 
     def handle_data(self, pc_msg, img_left_msg, img_front_msg, img_right_msg):
-        # logstr = "sync check:\n\tcurr time: {}".format(rospy.Time.now().to_sec())
-        # logstr += "\n\tpointcloud:  {}".format(pc_msg.header.stamp.to_sec())
-        # logstr += "\n\timage left:  {}".format(img_left_msg.header.stamp.to_sec())
-        # logstr += "\n\timage front: {}".format(img_front_msg.header.stamp.to_sec())
-        # logstr += "\n\timage right: {}".format(img_right_msg.header.stamp.to_sec())
-        # rospy.loginfo(logstr)
+        logstr = "sync check:\n\tcurr time: {}".format(rospy.Time.now().to_sec())
+        logstr += "\n\tpointcloud:  {}".format(pc_msg.header.stamp.to_sec())
+        logstr += "\n\timage left:  {}".format(img_left_msg.header.stamp.to_sec())
+        logstr += "\n\timage front: {}".format(img_front_msg.header.stamp.to_sec())
+        logstr += "\n\timage right: {}".format(img_right_msg.header.stamp.to_sec())
+        rospy.loginfo_throttle(5.0, logstr)
 
         self.pcl_msg = pc_msg
         self.image_data['image_left']['message'] = img_left_msg
@@ -247,6 +250,10 @@ class VoxelMappingNode:
 
         assert self.mapper_type == 'voxel', "need mapper type to be either 'voxel'"
         assert metadata.ndims == 3, "need 3d metadata for voxel mapping"
+
+        if self.is_ptype_mode:
+            config["localmapping"]["n_features"] = self.image_pipeline.blocks[-1].ptypes.shape[0]
+
         self.localmapper = VoxelLocalMapper(
             metadata,
             n_features=config["localmapping"]["n_features"],
@@ -783,7 +790,7 @@ class VoxelMappingNode:
                     msg = self.make_gridmap_msg(self.bev_grid)
                     self.gridmap_pub.publish(msg)
 
-                if isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock):
+                if self.is_ptype_mode:
                     is_obstacle = self.image_pipeline.blocks[-1].ptype_obstacle
 
                     msg = self.make_voxel_viz_seg_msg(self.localmapper.voxel_grid, is_obstacle)
@@ -809,7 +816,7 @@ class VoxelMappingNode:
                     feat_img = res["feature_images"][i]
                     #hack to remake pseudo det images
 
-                    if isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock):
+                    if self.is_ptype_mode:
                         score_img = self.apply_seg_cmap(feat_img)
                     else:
                         score_img = feat_img
