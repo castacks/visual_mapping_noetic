@@ -87,7 +87,7 @@ image_processing:
     -
         type: traversability_prototypes
         args:
-            fp: physics_atv_visual_mapping/traversability_prototypes/text_ptypes_basic.pt
+            fp: physics_atv_visual_mapping/traversability_prototypes/updated_ptypes.pt
 
 # voxel
 localmapping:

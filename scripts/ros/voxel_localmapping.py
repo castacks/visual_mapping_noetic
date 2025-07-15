@@ -55,6 +55,8 @@ class VoxelMappingNode:
         self.image_pipeline = setup_image_pipeline(config)
 
         self.is_ptype_mode = isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock)
+        if self.is_ptype_mode:
+            self.ptype_save_fp = config['prototype_save_fp']
 
         self.setup_localmapper(config)
         self.do_terrain_estimation = "terrain_estimation" in config.keys()
@@ -167,8 +169,17 @@ class VoxelMappingNode:
 
         rospy.loginfo('successfully updated voxel stuff')
 
-        ## TODO save the updated prototypes and send response
+        ptype_block = self.image_pipeline.blocks[-1]
+        res = {
+            'names': ptype_block.ptype_keys,
+            'embeddings': ptype_block.ptypes.cpu(),
+            'is_obstacle': ptype_block.ptype_obstacle.cpu()
+        }
+        torch.save(res, self.ptype_save_fp)
+        rospy.loginfo('saved ptypes to {}'.format(self.ptype_save_fp))
+
         resp.success = True
+        resp.save_path = self.ptype_save_fp
         return resp
 
     def add_prototype_to_voxel_mapper(self, id, is_obstacle, ptype):
@@ -771,6 +782,8 @@ class VoxelMappingNode:
 
             if res:
                 rospy.loginfo_throttle(5.0, "updating localmap...")
+
+                rospy.loginfo_throttle(5.0, 'feat_pc: {} voxel grid size: {}'.format(res['feature_pc'].features.shape, self.localmapper.voxel_grid.features.shape))
 
                 update_start_time = time.time()
                 self.localmapper.update_pose(res["pos"])

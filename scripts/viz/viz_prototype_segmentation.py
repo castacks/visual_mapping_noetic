@@ -36,7 +36,9 @@ if __name__ == "__main__":
     assert isinstance(radio_block, RADIOLangBlock), "first block is not RADIOLangBlock!"
     assert isinstance(ptype_block, TraversabilityPrototypesBlock), "second block is not TraversabilityPrototypesBlock!"
 
-    for img_fp in os.listdir(args.data_dir):
+    print(torch.linalg.norm(ptype_block.ptypes, dim=-1))
+
+    for img_fp in sorted(os.listdir(args.data_dir))[2017::100]:
         img = cv2.imread(os.path.join(args.data_dir, img_fp))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) / 255.
 
@@ -59,6 +61,7 @@ if __name__ == "__main__":
 
         for i, pk in enumerate(ptype_keys):
             axs[2+i].set_title(pk)
-            axs[2+i].imshow(feat_img[i].cpu().numpy(), vmin=0.0, vmax=0.25)
+#            axs[2+i].imshow(feat_img[i].cpu().numpy(), vmin=0.0, vmax=0.25)
+            axs[2+i].imshow(feat_img[i].cpu().numpy())
 
         plt.show()
