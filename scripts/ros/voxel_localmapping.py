@@ -57,6 +57,8 @@ class VoxelMappingNode:
         self.is_ptype_mode = isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock)
         if self.is_ptype_mode:
             self.ptype_save_fp = config['prototype_save_fp']
+            self.det_thresh_vals = config['det_thresh']
+            self.det_thresh = self.get_det_thresh()
 
         self.setup_localmapper(config)
         self.do_terrain_estimation = "terrain_estimation" in config.keys()
@@ -135,8 +137,16 @@ class VoxelMappingNode:
 
         self.update_ptype_srv = rospy.Service("update_prototypes", UpdatePrototype, self.handle_update_prototypes)
 
+    def get_det_thresh(self):
+        det_thresh = []
+        for modality in self.image_pipeline.blocks[-1].ptype_modality:
+            det_thresh.append(self.det_thresh_vals[modality])
+
+        rospy.loginfo('det thresh = {}'.format(det_thresh))
+        return torch.tensor(det_thresh, device=self.device)
+
     def handle_update_prototypes(self, req):
-        rospy.loginfo('request to add ptype {}, obstacle {}'.format(req.id, req.is_obstacle))
+        rospy.loginfo('request to add ptype {}, obstacle {}, modality {}'.format(req.id, req.is_obstacle, req.modality))
         resp = UpdatePrototypeResponse(success=False)
 
         ## check that we have a trav ptypes block
@@ -165,15 +175,15 @@ class VoxelMappingNode:
         ## ok, good to update
         rospy.loginfo('updating voxel stuff')
         new_ptype = torch.tensor(req.data).to(self.device)
-        self.add_prototype_to_voxel_mapper(req.id, req.is_obstacle, new_ptype)
-
+        self.add_prototype_to_voxel_mapper(req.id, req.is_obstacle, req.modality, new_ptype)
         rospy.loginfo('successfully updated voxel stuff')
 
         ptype_block = self.image_pipeline.blocks[-1]
         res = {
             'names': ptype_block.ptype_keys,
             'embeddings': ptype_block.ptypes.cpu(),
-            'is_obstacle': ptype_block.ptype_obstacle.cpu()
+            'is_obstacle': ptype_block.ptype_obstacle.cpu(),
+            'modality': ptype_block.ptype_modality
         }
         torch.save(res, self.ptype_save_fp)
         rospy.loginfo('saved ptypes to {}'.format(self.ptype_save_fp))
@@ -182,7 +192,7 @@ class VoxelMappingNode:
         resp.save_path = self.ptype_save_fp
         return resp
 
-    def add_prototype_to_voxel_mapper(self, id, is_obstacle, ptype):
+    def add_prototype_to_voxel_mapper(self, id, is_obstacle, modality, ptype):
         """
         Args:
             id: name of the prototype
@@ -204,6 +214,7 @@ class VoxelMappingNode:
                 trav_ptypes_block.ptype_obstacle,
                 torch.tensor(is_obstacle).to(self.device).view(1)
             ])
+            trav_ptypes_block.ptype_modality.append(modality)
 
             new_voxel_data = torch.zeros(
                 self.localmapper.voxel_grid.features.shape[0],
@@ -226,6 +237,8 @@ class VoxelMappingNode:
 
             new_voxel_data[:, :-1] = self.localmapper.voxel_grid.features
             self.localmapper.voxel_grid.features = new_voxel_data
+
+            self.det_thresh = self.get_det_thresh()
 
     def get_mask(self, mask_fp, size=(960, 594)):
         """
@@ -580,7 +593,7 @@ class VoxelMappingNode:
         pc_neg_scores = ptype_sim[..., is_obstacle].max(dim=-1)[0]
         pc_score = pc_pos_scores - pc_neg_scores
 
-        pc_color = self.apply_seg_cmap(ptype_sim) * 255.
+        pc_color = self.apply_seg_cmap(ptype_sim, self.det_thresh) * 255.
 
         pc_msg = self.xyz_array_to_point_cloud_msg(
             points = seg_pc.pts[seg_pc.feat_mask].cpu().numpy(),
@@ -830,7 +843,7 @@ class VoxelMappingNode:
                     #hack to remake pseudo det images
 
                     if self.is_ptype_mode:
-                        score_img = self.apply_seg_cmap(feat_img)
+                        score_img = self.apply_seg_cmap(feat_img, self.det_thresh)
                     else:
                         score_img = feat_img
 
@@ -851,18 +864,32 @@ class VoxelMappingNode:
                 )
                 rospy.loginfo_throttle(5.0, "total time: {}".format(time.time() - preproc_start_time))
 
-    def apply_seg_cmap(self, feats, thresh=0.25):
+    def apply_seg_cmap(self, feats, thresh):
         """
         Return a viz tensor for an abritrary dim of feats
         Args:
             feats [... x F] tensor of scores
+            thresh: [F] tensor of det thresholds
         Returns:
             seg [... x 3] viz of scores
         """
-        no_det = feats.max(dim=-1)[0] < thresh
-        max_idx = feats.argmax(dim=-1) % self.seg_cmap.shape[0]
+        leading_dims = [1] * (len(feats.shape) - 1)
+        _thresh = thresh.reshape(*leading_dims, -1)
+
+        no_det = feats < _thresh
+
+        seg_scores = feats.clone()
+        seg_scores[no_det] = -1e10
+
+        #have seg score be margin over thresh to make score invariant to value
+        seg_scores = seg_scores - _thresh
+
+        max_seg_score, max_idx = seg_scores.max(dim=-1)
+
+        max_idx = max_idx % self.seg_cmap.shape[0]
         seg = self.seg_cmap[max_idx]
-        seg[no_det] = self.seg_empty_color
+
+        seg[max_seg_score < 0.] = self.seg_empty_color
         return seg
 
 if __name__ == '__main__':

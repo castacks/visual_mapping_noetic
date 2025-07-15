@@ -4,6 +4,9 @@ do_proj_cleanup: true
 
 #save ptypes to this dir from service call
 prototype_save_fp: /models/physics_atv_visual_mapping/traversability_prototypes/updated_ptypes.pt
+det_thresh:
+    text: 0.25
+    image: 0.74
 
 images:
     image_left:

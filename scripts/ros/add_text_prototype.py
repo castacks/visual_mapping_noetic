@@ -32,6 +32,7 @@ if __name__ == '__main__':
     resp = update_ptype_srv(
         id=args.id,
         is_obstacle=False if args.nonobstacle else True,
+        modality='text',
         data=data
     )
 

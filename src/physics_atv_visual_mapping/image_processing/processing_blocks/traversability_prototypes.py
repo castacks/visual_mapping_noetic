@@ -22,6 +22,7 @@ class TraversabilityPrototypesBlock(ImageProcessingBlock):
         self.ptype_keys = prototypes['names']
         self.ptypes = prototypes['embeddings']
         self.ptype_obstacle = prototypes['is_obstacle']
+        self.ptype_modality = prototypes['modality']
 
     def run(self, image, intrinsics, image_orig):
         if self.ptypes is not None:

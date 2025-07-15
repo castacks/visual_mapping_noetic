@@ -32,6 +32,7 @@ if __name__ == "__main__":
         "names": [],
         "embeddings": [],
         "is_obstacle": [],
+        "modality": [],
     }
 
     for ptype in ptype_conf:
@@ -40,6 +41,7 @@ if __name__ == "__main__":
 
         text_embed = radio_model.embed_text(ptype['desc'])
         ptypes['embeddings'].append(text_embed)
+        ptypes['modality'].append('text')
 
     ptypes['embeddings'] = torch.stack(ptypes['embeddings'], dim=0)  
     ptypes['is_obstacle'] = torch.tensor(ptypes['is_obstacle'], dtype=torch.bool)
