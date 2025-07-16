@@ -57,7 +57,7 @@ class VoxelMappingNode:
         self.is_ptype_mode = isinstance(self.image_pipeline.blocks[-1], TraversabilityPrototypesBlock)
         if self.is_ptype_mode:
             self.ptype_save_fp = config['prototype_save_fp']
-            self.det_thresh_vals = config['det_thresh']
+            self.det_thresh_vals = yaml.safe_load(open(config['det_thresh_fp'], 'r'))
             self.det_thresh = self.get_det_thresh()
 
         self.setup_localmapper(config)
@@ -230,10 +230,12 @@ class VoxelMappingNode:
 
                     if isinstance(block, TraversabilityPrototypeScore):
                         block.ptype_keys.append(id)
+                        block.ptype_modalities.append(modality)
                         block.ptype_obstacle = torch.cat([
                             block.ptype_obstacle,
                             torch.tensor(is_obstacle).to(self.device).view(1)
                         ])
+                        block.compute_det_threshs()
 
             new_voxel_data[:, :-1] = self.localmapper.voxel_grid.features
             self.localmapper.voxel_grid.features = new_voxel_data

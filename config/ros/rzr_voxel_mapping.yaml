@@ -4,9 +4,7 @@ do_proj_cleanup: true
 
 #save ptypes to this dir from service call
 prototype_save_fp: /models/physics_atv_visual_mapping/traversability_prototypes/updated_ptypes.pt
-det_thresh:
-    text: 0.25
-    image: 0.74
+det_thresh_fp: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/config/ros/det_threshs.yaml
 
 images:
     image_left:
@@ -72,8 +70,8 @@ pointcloud:
 gridmap_pub_keys:
     - terrain
     - cost
-    # - obstacle_max_csim
-    # - nonobstacle_max_csim
+    - obstacle_max_csim
+    - nonobstacle_max_csim
 
 #the base link of the vehicle (e.g. base_link, vehicle, etc.)
 vehicle_frame: crl_rzr/base_link
@@ -201,6 +199,7 @@ terrain_estimation:
             vfm_feature_key: dino #should match whatever's in the bev_feature_splat block
             mask_key: num_voxels
             prototype_fp: /models/physics_atv_visual_mapping/traversability_prototypes/text_ptypes_basic.pt
+            det_thresh_fp: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/config/ros/det_threshs.yaml
 
 rate: 0.2
 device: cuda
