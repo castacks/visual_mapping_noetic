@@ -13,6 +13,7 @@ from physics_atv_visual_mapping.image_processing.processing_blocks.pca_vlad impo
     PCAVLADBlock,
 )
 # from physics_atv_visual_mapping.image_processing.processing_blocks.ganav import GANavBlock
+from physics_atv_visual_mapping.image_processing.processing_blocks.radio_lang import RADIOLangBlock
 from physics_atv_visual_mapping.image_processing.processing_blocks.traversability_prototypes import TraversabilityPrototypesBlock
 
 from physics_atv_visual_mapping.utils import normalize_dino
@@ -40,6 +41,8 @@ def setup_image_pipeline(config):
             block = PCAVLADBlock(
                 **block_config["args"], models_dir=config["models_dir"]
             )
+        elif btype == "radio_lang":
+            block = RADIOLangBlock(**block_config['args'], models_dir=config["models_dir"])
         elif btype == "traversability_prototypes":
             block = TraversabilityPrototypesBlock(
                 **block_config["args"], models_dir=config["models_dir"]

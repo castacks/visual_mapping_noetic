@@ -5,38 +5,32 @@ from physics_atv_visual_mapping.image_processing.processing_blocks.base import (
     ImageProcessingBlock,
 )
 
-
 class TraversabilityPrototypesBlock(ImageProcessingBlock):
     """
     Block that applies a precomputed PCA to the image
     """
 
     def __init__(self, fp, models_dir, device):
-        full_fp = os.path.join(models_dir, fp)
-        prototypes = torch.load(full_fp)
         
-        self.obstacle_keys = []
-        self.obstacle_ptypes = []
-        self.nonobstacle_keys = []
-        self.nonobstacle_ptypes = []
+        self.ptype_keys = None
+        self.ptypes = None
+        self.ptype_obstacle = None
 
-        for pdata in prototypes["obstacle"]:
-            self.obstacle_keys.append(pdata["label"])
-            self.obstacle_ptypes.append(pdata["ptype"])
+        full_fp = os.path.join(models_dir, fp)
+        prototypes = torch.load(full_fp, map_location=device)
 
-        for pdata in prototypes["nonobstacle"]:
-            self.nonobstacle_keys.append(pdata["label"])
-            self.nonobstacle_ptypes.append(pdata["ptype"])
-
-        self.obstacle_ptypes = torch.stack(self.obstacle_ptypes, dim=0).to(device)
-        self.nonobstacle_ptypes = torch.stack(self.nonobstacle_ptypes, dim=0).to(device)
+        self.ptype_keys = prototypes['names']
+        self.ptypes = prototypes['embeddings']
+        self.ptype_obstacle = prototypes['is_obstacle']
+        self.ptype_modality = prototypes['modality']
 
     def run(self, image, intrinsics, image_orig):
-        pos_csim, neg_csim = self.get_prototype_scores(image)
+        if self.ptypes is not None:
+            img_out = get_feat_img_prototype_cosine_sim(image, self.ptypes)
 
-        img_out = torch.cat([pos_csim, neg_csim], dim=1)
-
-        return img_out, intrinsics
+            return img_out, intrinsics
+        else:
+            return torch.zeros(image.shape[0], 0, image.shape[2], image.shape[3], device=image.device), intrinsics
 
     def get_prototype_scores(self, feat_img):
         """
