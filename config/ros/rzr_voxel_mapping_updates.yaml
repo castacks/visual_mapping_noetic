@@ -1,17 +1,18 @@
 models_dir: /models #necessary to include this for non-ROS offline proc
 
-do_proj_cleanup: true
+do_proj_cleanup: false
 
 #save ptypes to this dir from service call
 prototype_save_fp: /models/physics_atv_visual_mapping/traversability_prototypes/updated_ptypes.pt
 
 images:
     image_left:
-        image_topic: /crl_rzr/multisense_left/aux/image_rect_color
+        # image_topic: /crl_rzr/multisense_left/aux/image_rect_color
+        image_topic: /crl_rzr/multisense_left/aux/image_color
         camera_info_topic: /crl_rzr/multisense_left/aux/image_color/camera_info
         image_compressed: False
         folder: image_left
-        mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/left.png
+        # mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/left.png
 
         #camera intrinsics
         intrinsics:
@@ -24,11 +25,11 @@ images:
             q: [0.805, -0.212, 0.150, 0.534] #xyzw
         
     image_front:
-        image_topic: /crl_rzr/multisense_front/aux/image_rect_color
+        image_topic: /crl_rzr/multisense_front/aux/image_color
         camera_info_topic: /crl_rzr/multisense_front/aux/image_color/camera_info
         image_compressed: False
         folder: image_front
-        mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/front.png
+        # mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/front.png
 
        #camera intrinsics
         intrinsics:
@@ -41,11 +42,11 @@ images:
             q: [0.597, -0.593, 0.384, 0.380]  #xyzw
 
     image_right:
-        image_topic: /crl_rzr/multisense_right/aux/image_rect_color
+        image_topic: /crl_rzr/multisense_right/aux/image_color
         camera_info_topic: /crl_rzr/multisense_right/aux/image_color/camera_info
         image_compressed: False
         folder: image_right
-        mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/right.png
+        # mask: /catkin_ws/src/vfm_voxel_mapping/visual_mapping_noetic/data/masks/rzr/right.png
 
         #camera intrinsics
         intrinsics:
@@ -65,10 +66,13 @@ pointcloud:
    topic: /crl_rzr/velodyne_merged_points
    folder: pointcloud_in_vehicle
 
+waypoints:
+    topic: /crl_rzr/planner_mid/goal
+
 #gridmap pub is bad in python so reduce number of layers
 gridmap_pub_keys:
     - terrain
-    - cost
+    # - cost
     # - obstacle_max_csim
     # - nonobstacle_max_csim
 
@@ -80,124 +84,131 @@ mapping_frame: crl_rzr/map
 
 image_processing:
     -
-        type: radio_lang
+        type: radio
         args:
-            adaptor: clip
-            
-    -
-        type: traversability_prototypes
-        args:
-            fp: physics_atv_visual_mapping/traversability_prototypes/updated_ptypes.pt
+            image_insize: [848, 448]
+            radio_type: c-radio_v3-b
+    # -
+    #     type: traversability_prototypes
+    #     args:
+    #         fp: physics_atv_visual_mapping/traversability_prototypes/updated_ptypes.pt
+
+frontier_estimation:
+    # model_path: /models/physics_atv_visual_mapping/frontier_estimation/model_rankloss.pt
+    # model_path: /models/physics_atv_visual_mapping/frontier_estimation/model_new.pt
+    # model_path: /models/physics_atv_visual_mapping/frontier_estimation/model_nocorners.pt
+    model_path: /models/physics_atv_visual_mapping/frontier_estimation/ours_all
+    # model_path: /models/physics_atv_visual_mapping/frontier_estimation/tau_1_1_strength
 
 # voxel
 localmapping:
     mapper_type: voxel
     layer_key: dino
     ema: 0.5 #higher->use recent more
-    n_features: -1
+    n_features: 16
     metadata:
-        origin: [-50., -50., -10.]
-        length: [100., 100., 20.]
-        resolution: [0.2, 0.2, 0.1]
+        origin: [-5., -5., -10.]
+        length: [10., 10., 20.]
+        resolution: [5., 5., 10.]
 
     raytracer:
         type: frustum
         sensor:
             type: VLP32C-front
 
-terrain_estimation:
-    -
-        type: elevation_stats
-        args: {}
+# terrain_estimation:
+#     -
+#         type: elevation_stats
+#         args: {}
 
-    -
-        type: porosity
-        args: {}
+#     -
+#         type: porosity
+#         args: {}
 
-    -
-        type: elevation_filter
-        args:
-            input_layer: min_elevation
-            cnt_layer: num_voxels
+#     -
+#         type: elevation_filter
+#         args:
+#             input_layer: min_elevation
+#             cnt_layer: num_voxels
 
-            height_low_thresh: -3.0 #cells this far below their neighbors are not terrain
-            height_high_thresh: 0.5 #cells this far above their neighbors are not terrain
+#             height_low_thresh: -3.0 #cells this far below their neighbors are not terrain
+#             height_high_thresh: 0.5 #cells this far above their neighbors are not terrain
 
-            kernel_params:
-                kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+#             kernel_params:
+#                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
 
-                kernel_radius: 2. #kernel radius in m
-                kernel_sharpness: 5. #sharpness of (Gaussian) kernel
+#                 kernel_radius: 2. #kernel radius in m
+#                 kernel_sharpness: 5. #sharpness of (Gaussian) kernel
 
-                # kernel_radius: 0.25 #kernel radius in m
-                # kernel_sharpness: 0.5 #sharpness of (Gaussian) kernel
+#                 # kernel_radius: 0.25 #kernel radius in m
+#                 # kernel_sharpness: 0.5 #sharpness of (Gaussian) kernel
 
-    -
-        type: terrain_inflation
-        args:
-            input_layer: min_elevation_filtered
-            mask_layer: min_elevation_filtered_mask
+#     -
+#         type: terrain_inflation
+#         args:
+#             input_layer: min_elevation_filtered
+#             mask_layer: min_elevation_filtered_mask
 
-            thresh: 0.05 #at least this frac of neighboring cells in the kernel must be observed
+#             thresh: 0.05 #at least this frac of neighboring cells in the kernel must be observed
 
-            kernel_params:
-                kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+#             kernel_params:
+#                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
 
-                kernel_radius: 1. #kernel radius in m
-                kernel_sharpness: 2. #sharpness of (Gaussian) kernel
+#                 kernel_radius: 1. #kernel radius in m
+#                 kernel_sharpness: 2. #sharpness of (Gaussian) kernel
 
-                # kernel_radius: 0.5 #kernel radius in m
-                # kernel_sharpness: 1.0 #sharpness of (Gaussian) kernel
+#                 # kernel_radius: 0.5 #kernel radius in m
+#                 # kernel_sharpness: 1.0 #sharpness of (Gaussian) kernel
 
-    - 
-        type: mrf_terrain_estimation
-        args: 
-            input_layer: min_elevation_filtered_inflated
-            mask_layer: min_elevation_filtered_inflated_mask
+#     - 
+#         type: mrf_terrain_estimation
+#         args: 
+#             input_layer: min_elevation_filtered_inflated
+#             mask_layer: min_elevation_filtered_inflated_mask
 
-            itrs: 5   #num updates
-            alpha: 1. #weight on the measurement update
-            beta: 1.  #weight on the neighbor update
-            lr: 0.05   #learning rate
+#             itrs: 5   #num updates
+#             alpha: 1. #weight on the measurement update
+#             beta: 1.  #weight on the neighbor update
+#             lr: 0.05   #learning rate
 
-            kernel_params:
-                kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
+#             kernel_params:
+#                 kernel_type: gaussian #one of {gaussian/box} the kernel type to use for inflation
 
-                kernel_radius: 1. #kernel radius in m
-                kernel_sharpness: 2. #sharpness of (Gaussian) kernel
+#                 kernel_radius: 1. #kernel radius in m
+#                 kernel_sharpness: 2. #sharpness of (Gaussian) kernel
 
-                # kernel_radius: 0.5
-                # kernel_sharpness: 1.0
+#                 # kernel_radius: 0.5
+#                 # kernel_sharpness: 1.0
 
-    - 
-        type: slope
-        args:
-            input_layer: terrain
-            mask_layer: min_elevation_filtered_inflated_mask
-            radius: 1.0
-            max_slope: 2.0
+#     - 
+#         type: slope
+#         args:
+#             input_layer: terrain
+#             mask_layer: min_elevation_filtered_inflated_mask
+#             radius: 1.0
+#             max_slope: 2.0
 
-    -
-        type: terrain_diff
-        args:
-            terrain_layer: terrain
-            overhang: 2.0
+#     -
+#         type: terrain_diff
+#         args:
+#             terrain_layer: terrain
+#             overhang: 2.0
             
-    -
-        type: terrain_aware_bev_feature_splat
-        args:
-            output_key: dino
-            terrain_layer: terrain
-            terrain_mask_layer: min_elevation_filtered_inflated_mask
-            reduce: max
-            overhang: 2.0
+#     -
+#         type: terrain_aware_bev_feature_splat
+#         args:
+#             output_key: dino
+#             terrain_layer: terrain
+#             terrain_mask_layer: min_elevation_filtered_inflated_mask
+#             reduce: max
+#             overhang: 2.0
 
-    -
-        type: traversability_prototype_scores
-        args:
-            vfm_feature_key: dino #should match whatever's in the bev_feature_splat block
-            mask_key: num_voxels
-            prototype_fp: /models/physics_atv_visual_mapping/traversability_prototypes/text_ptypes_basic.pt
+    # -
+    #     type: traversability_prototype_scores
+    #     args:
+    #         vfm_feature_key: dino #should match whatever's in the bev_feature_splat block
+    #         mask_key: num_voxels
+    #         prototype_fp: /models/physics_atv_visual_mapping/traversability_prototypes/text_ptypes_basic.pt
 
 rate: 0.2
 device: cuda
