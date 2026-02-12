@@ -97,8 +97,9 @@ frontier_estimation:
     # model_path: /models/physics_atv_visual_mapping/frontier_estimation/model_rankloss.pt
     # model_path: /models/physics_atv_visual_mapping/frontier_estimation/model_new.pt
     # model_path: /models/physics_atv_visual_mapping/frontier_estimation/model_nocorners.pt
-    model_path: /models/physics_atv_visual_mapping/frontier_estimation/ours_all
+    # model_path: /models/physics_atv_visual_mapping/frontier_estimation/ours_all
     # model_path: /models/physics_atv_visual_mapping/frontier_estimation/tau_1_1_strength
+    model_path: /models/frontier_estimation/sup_v6
 
 # voxel
 localmapping:
